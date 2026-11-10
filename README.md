@@ -21,7 +21,7 @@ Fichiers : `index.html` (écrans), `css/app.css` (style), `js/engine.js` (moteur
 1. Ouvrez `notebooks/DianaLuxe_GPU.ipynb` dans **Google Colab** (GPU T4) ou **Kaggle** (GPU T4, Internet activé).
 2. (Optionnel) Collez une ou plusieurs clés Agnes, séparées par des virgules.
 3. Exécutez les cellules : le notebook affiche une **adresse** `https://….trycloudflare.com` et un **jeton**.
-4. Dans le site : **⚙️ Serveur IA vidéo** → collez l'adresse et le jeton → **Tester la connexion**.
+4. Dans l'app : **Profil → Paramètres de l'IA** → collez l'adresse et le jeton → **Enregistrer et tester**.
 
 Astuce : `index.html#server=ADRESSE&token=JETON` remplit les champs automatiquement.
 

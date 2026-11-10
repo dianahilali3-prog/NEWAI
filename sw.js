@@ -1,6 +1,6 @@
 /* Éclat Ai — service worker : l'interface s'ouvre même hors ligne.
    Seuls les fichiers de l'app sont mis en cache ; les appels aux IA (Agnes, Pollinations, serveur) passent toujours par le réseau. */
-const CACHE = 'eclat-v5';
+const CACHE = 'eclat-v6';
 const SHELL = ['./', './index.html', './css/app.css', './js/engine.js', './js/app.js', './manifest.webmanifest',
   './assets/splash.jpg', './assets/hero.jpg', './assets/icon-192.png', './assets/icon-512.png',
   './assets/style-realiste.jpg', './assets/style-cinema.jpg', './assets/style-anime.jpg',

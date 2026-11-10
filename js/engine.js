@@ -51,10 +51,10 @@ async function shrinkImage(blob, maxSide = 1344) {
 
 // ── Réglages (stockés sur l'appareil) ────────────────────────────
 const Settings = {
-  _d: { agnesKey: '', serverUrl: '', serverToken: '', name: 'ma belle', patience: 1, music: 'ambient', cinema: true, format: '9:16' },
+  _d: { agnesKey: '', serverUrl: '', serverToken: '', hfToken: '', imgEngine: 'auto', name: 'ma belle', patience: 1, music: 'ambient', cinema: true, format: '9:16' },
   get(k) { try { const s = JSON.parse(localStorage.getItem('eclat_settings') || '{}'); return k in s ? s[k] : this._d[k]; } catch (e) { return this._d[k]; } },
   set(k, v) { try { const s = JSON.parse(localStorage.getItem('eclat_settings') || '{}'); s[k] = v; localStorage.setItem('eclat_settings', JSON.stringify(s)); } catch (e) {} },
-  clearKeys() { ['agnesKey', 'serverUrl', 'serverToken'].forEach(k => this.set(k, '')); }
+  clearKeys() { ['agnesKey', 'serverUrl', 'serverToken', 'hfToken'].forEach(k => this.set(k, '')); }
 };
 const hasAgnes = () => !!Settings.get('agnesKey').trim();
 function serverBase() {
@@ -176,25 +176,128 @@ function characterPrompt(prompt, character, withRef) {
   const who = `${character.name}${character.description ? ' (' + character.description + ')' : ''}`;
   return withRef ? `New photo of the same person as in the reference image (${who}): keep exactly the same face and identity, but create a completely new scene, pose, outfit and framing as described, showing the full setting. Scene: ${prompt}` : `${who}. ${prompt}`;
 }
-async function createImage({ prompt, style, format = '9:16', hd = false, image = null, character = null, seed, onStatus = () => {} }) {
+/* ════════════════════════════════════════════════════════════════
+   QWEN-IMAGE (Alibaba, open source Apache 2.0) — Spaces officiels Hugging Face (GPU gratuits ZeroGPU)
+   Quota de temps GPU par personne : un token Hugging Face gratuit donne ton propre quota quotidien.
+   Protocole Gradio "queue" vérifié depuis le navigateur (CORS autorisé).
+   ════════════════════════════════════════════════════════════════ */
+const QWEN_T2I = ['https://qwen-qwen-image-2512.hf.space', 'https://qwen-qwen-image.hf.space'];
+const QWEN_EDIT = 'https://qwen-qwen-image-edit-2511.hf.space';
+const qwenSlot = semaphore(2);
+const hasQwen = () => !!Settings.get('hfToken').trim();
+const hfHeaders = () => { const t = Settings.get('hfToken').trim(); return t ? { 'x-hf-authorization': 'Bearer ' + t } : {}; };
+const gradioFn = {};
+
+async function gradioRun(base, apiName, data, onStatus = () => {}) {
+  if (gradioFn[base] == null) {
+    const cfg = await (await fetchWithTimeout(base + '/config', 30000, { headers: hfHeaders() })).json();
+    const dep = (cfg.dependencies || []).find(d => d.api_name === apiName);
+    if (!dep) throw new Error('API Qwen introuvable');
+    gradioFn[base] = dep.id ?? (cfg.dependencies || []).indexOf(dep);
+  }
+  const sh = Math.random().toString(36).slice(2, 13);
+  const j = await fetchWithTimeout(base + '/gradio_api/queue/join', 30000, { method: 'POST', headers: { 'Content-Type': 'application/json', ...hfHeaders() },
+    body: JSON.stringify({ data, fn_index: gradioFn[base], session_hash: sh, event_data: null, trigger_id: null }) });
+  if (!j.ok) throw new Error('Qwen : HTTP ' + j.status);
+  const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 6 * 60000);
+  try {
+    const r = await fetch(`${base}/gradio_api/queue/data?session_hash=${sh}`, { headers: hfHeaders(), signal: ctrl.signal });
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line.startsWith('data:')) continue;
+        let m; try { m = JSON.parse(line.slice(5)); } catch (e) { continue; }
+        if (m.msg === 'estimation') onStatus(`Qwen (Hugging Face) : file d'attente, position ${(m.rank || 0) + 1}`);
+        if (m.msg === 'process_starts') onStatus('Qwen crée ton image sur GPU…');
+        if (m.msg === 'process_completed') {
+          if (m.success && m.output && m.output.data) return m.output.data;
+          const err = (m.output && m.output.error) || m.title || 'erreur Qwen';
+          const e = new Error(/quota/i.test(err) ? 'quota GPU Hugging Face épuisé pour aujourd\'hui' + (hasQwen() ? '' : ' (ajoute un token Hugging Face gratuit)') : 'Qwen : ' + err);
+          e.quota = /quota/i.test(err); throw e;
+        }
+      }
+    }
+    throw new Error('Qwen : connexion interrompue');
+  } finally { clearTimeout(timer); }
+}
+function findFileUrl(d) {
+  if (!d || typeof d !== 'object') return null;
+  if (typeof d.url === 'string' && /^https?:/.test(d.url)) return d.url;
+  for (const v of Object.values(d)) { const u = findFileUrl(v); if (u) return u; }
+  return null;
+}
+async function qwenUpload(base, blob) {
+  const fd = new FormData(); fd.append('files', blob, 'reference.jpg');
+  const r = await fetchWithTimeout(base + '/gradio_api/upload', 60000, { method: 'POST', headers: hfHeaders(), body: fd });
+  if (!r.ok) throw new Error('Qwen : envoi de l\'image impossible');
+  const [path] = await r.json();
+  return { path, meta: { _type: 'gradio.FileData' }, orig_name: 'reference.jpg' };
+}
+async function qwenImage({ prompt, format, image, onStatus }) {
+  return qwenSlot(async () => {
+    let out;
+    if (image) {
+      const f = FORMATS[format] || FORMATS['9:16'];
+      const [w, h] = f.ag.split('x').map(Number);
+      onStatus('Qwen-Image-Edit : envoi de la référence…');
+      const file = await qwenUpload(QWEN_EDIT, await shrinkImage(image, 1024));
+      out = await gradioRun(QWEN_EDIT, 'infer', [[{ image: file, caption: null }], prompt, 0, true, 4.0, 30, h, w, false], onStatus);
+      var base = QWEN_EDIT;
+    } else {
+      let lastErr;
+      for (const b of QWEN_T2I) {
+        try { out = await gradioRun(b, 'infer', [prompt, 0, true, format in FORMATS ? format : '9:16', 4.0, 30, false], onStatus); base = b; break; }
+        catch (e) { lastErr = e; if (e.quota) throw e; }
+      }
+      if (!out) throw lastErr;
+    }
+    const url = findFileUrl(out); if (!url) throw new Error('Qwen : image introuvable');
+    const r = await fetchWithTimeout(url, 60000, { headers: hfHeaders() });
+    if (!r.ok) throw new Error('Qwen : téléchargement impossible');
+    return r.blob();
+  });
+}
+
+/* Image : moteur choisi (Agnes ≈10 s, Qwen open source, Pollinations gratuit) avec repli automatique */
+const IMG_ENGINES = { auto: 'Auto', agnes: 'Agnes', qwen: 'Qwen-Image (open source)', pollinations: 'Pollinations' };
+async function createImage({ prompt, style, format = '9:16', hd = false, image = null, character = null, seed, engine, onStatus = () => {} }) {
   const f = FORMATS[format] || FORMATS['9:16'];
   const ref = image || (character && character.photos && character.photos[0]) || null;
-  if (!image && ref && hasAgnes()) image = ref;
+  if (!image && ref && (hasAgnes() || hasQwen())) image = ref;
   const full = withStyle(characterPrompt(prompt, character, !!(image && character)), style);
-  if (hasAgnes()) {
+  engine = engine || Settings.get('imgEngine') || 'auto';
+  const order = { auto: ['agnes', 'qwen', 'pollinations'], agnes: ['agnes', 'qwen', 'pollinations'],
+    qwen: ['qwen', 'agnes', 'pollinations'], pollinations: ['pollinations', 'agnes', 'qwen'] }[engine] || ['agnes', 'qwen', 'pollinations'];
+  const errors = [];
+  for (const eng of order) {
     try {
-      onStatus(image ? 'Agnes transforme ton image…' : 'Agnes crée ton image…');
-      return { blob: await agnesImage({ prompt: full, size: hd ? f.agHD : f.ag, image }), engine: 'Agnes' };
+      if (eng === 'agnes') {
+        if (!hasAgnes()) continue;
+        onStatus(image ? 'Agnes transforme ton image…' : 'Agnes crée ton image…');
+        try { return { blob: await agnesImage({ prompt: full, size: hd ? f.agHD : f.ag, image }), engine: 'Agnes' }; }
+        catch (e) { if (hd) return { blob: await agnesImage({ prompt: full, size: f.ag, image }), engine: 'Agnes' }; throw e; }
+      }
+      if (eng === 'qwen') {
+        if (!hasQwen() && engine !== 'qwen') continue;      // sans token : seulement si Qwen est choisi explicitement
+        onStatus(image ? 'Qwen-Image-Edit transforme ton image…' : 'Qwen-Image crée ton image…');
+        return { blob: await qwenImage({ prompt: full, format, image, onStatus }), engine: image ? 'Qwen-Image-Edit 2511' : 'Qwen-Image' };
+      }
+      if (eng === 'pollinations') {
+        if (image) { errors.push('Pollinations ne sait pas utiliser une image de référence'); continue; }
+        const blob = await pollinationsImage(full, f.pw, f.ph, seed ?? Math.floor(Math.random() * 1e9), s => onStatus(`Pollinations gratuit : 1 image / 45 s — encore ${s} s`));
+        return { blob, engine: 'Pollinations' };
+      }
     } catch (e) {
-      if (hd) { try { return { blob: await agnesImage({ prompt: full, size: f.ag, image }), engine: 'Agnes' }; } catch (e2) {} }
-      if (e.status === 401) throw e;
-      onStatus('Agnes indisponible, passage à Pollinations…');
+      errors.push(`${IMG_ENGINES[eng] || eng} : ${e.message}`);
+      onStatus(`${IMG_ENGINES[eng] || eng} indisponible, moteur suivant…`);
     }
-  } else if (image) {
-    throw new Error('Image → Image nécessite une clé Agnes (Profil → Paramètres de l\'IA)');
   }
-  const blob = await pollinationsImage(full, f.pw, f.ph, seed ?? Math.floor(Math.random() * 1e9), s => onStatus(`Pollinations gratuit : 1 image / 45 s — encore ${s} s`));
-  return { blob, engine: 'Pollinations' };
+  throw new Error(image && !hasAgnes() && !hasQwen() ? 'Image → Image nécessite une clé Agnes ou un token Hugging Face (Profil → Paramètres de l\'IA)'
+    : errors.join(' · ') || 'aucun moteur d\'image disponible');
 }
 
 /* Découpage d'une idée en plans (Agent Agnes si dispo, sinon plans prédéfinis) */

@@ -7,10 +7,13 @@ Ouvrez `index.html` (ou publiez le dépôt sur GitHub Pages), puis **Profil → 
 | --- | --- | --- |
 | Agent IA connecté au web | Agnes `agnes-3.0-flash` + outils : recherche web (Yahoo via Jina Reader, Wikipédia), lecture de pages, photos libres (Wikimedia Commons), créations, personnages ; voit les photos envoyées | ~1 min pour recherche + 3 pages lues + 3 images |
 | Image, Image → Image | Agnes `agnes-image-2.5-flash` / `2.1-flash` (secours : Pollinations gratuit) | ~11 s |
+| Image open source | **Qwen-Image 2512** et **Qwen-Image-Edit 2511** (Alibaba, Apache 2.0) sur les Spaces officiels Hugging Face (GPU gratuits, quota par personne : ajouter un token Hugging Face gratuit) ; repli automatique sur Agnes puis Pollinations | selon la file Hugging Face |
 | Studio en lot | Jusqu'à 30 images et vidéos, chacune son prompt, en parallèle | 4 images en 16 s ; 6 créations mixtes en 1 min 44 |
 | Personnages | Photo de référence + description, même visage via Agnes image → image | ~11 s par image |
 | Vidéo IA | Agnes `agnes-video-2.5-flash` (file souvent pleine : l'app réessaie) | variable |
 | Vidéo — repli automatique | Montage animé dans le navigateur à partir d'images Agnes créées en parallèle | ~40 s pour 10 s |
+
+Nano Banana 2 (Google, `gemini-3.1-flash-image`) n'est pas open source et n'a pas d'offre gratuite officielle (payant chez Google et Cloudflare) : il n'est pas intégré.
 
 Sans clé Agnes, tout fonctionne avec Pollinations (1 image / 45 s).
 

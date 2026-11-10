@@ -84,6 +84,7 @@ const PICKS = {
   'img-quality': { title: 'Qualité', options: () => [{ value: 'hd', label: 'HD', sub: 'rapide' }, { value: 'ultra', label: 'Ultra HD', sub: 'plus de détails (avec clé Agnes)' }] },
   'img-count': { title: 'Nombre d\'images (même prompt, variantes)', options: () => [1, 2, 3, 4, 6, 8, 10, 15, 20, 30].map(n => ({ value: n, label: String(n) })) },
   'img-char': { title: 'Personnage', options: charOptions },
+  'img-engine': { title: 'Moteur d\'image', options: () => [{ value: 'auto', label: 'Auto', sub: 'Agnes → Qwen → Pollinations' }, { value: 'agnes', label: 'Agnes', sub: 'rapide, haute qualité (clé Agnes)' }, { value: 'qwen', label: 'Qwen-Image (open source)', sub: 'GPU gratuits Hugging Face, quota par personne' }, { value: 'pollinations', label: 'Pollinations', sub: 'gratuit, 1 image / 45 s' }] },
   'vid-char': { title: 'Personnage', options: charOptions },
   'vid-count': { title: 'Nombre de vidéos (variantes)', options: () => [1, 2, 3, 4, 5, 10].map(n => ({ value: n, label: String(n) })) },
   'vid-engine': { title: 'Moteur vidéo', options: () => [
@@ -96,7 +97,7 @@ const PICKS = {
   'vid-transition': { title: 'Transitions', options: () => [{ value: 'mix', label: 'Variées' }, { value: 'fade', label: 'Fondu' }, { value: 'zoom', label: 'Zoom' }, { value: 'slide', label: 'Glissement' }, { value: 'flash', label: 'Flash' }] },
 };
 const form = {
-  'img-format': Settings.get('format'), 'img-quality': 'hd', 'img-count': 1, 'img-char': '', imgMode: 't2i', imgStyle: 'cinema', imgUpload: null,
+  'img-format': Settings.get('format'), 'img-engine': Settings.get('imgEngine'), 'img-quality': 'hd', 'img-count': 1, 'img-char': '', imgMode: 't2i', imgStyle: 'cinema', imgUpload: null,
   'vid-engine': 'auto', 'vid-format': Settings.get('format'), 'vid-music': Settings.get('music'), 'vid-transition': 'mix', 'vid-char': '', 'vid-count': 1,
   vidMode: 't2v', vidStyle: 'cinema', vidDuration: 10, vidUpload: null, 'st-format': Settings.get('format'),
 };
@@ -156,7 +157,7 @@ async function runJob(job) {
     const character = p.characterId ? await Chars.get(p.characterId).catch(() => null) : null;
     let it;
     if (job.type === 'image') {
-      const r = await createImage({ prompt: p.prompt, style: p.style, format: p.format, hd: p.quality === 'ultra', image: p.image || null, character, onStatus: m => set(m) });
+      const r = await createImage({ prompt: p.prompt, style: p.style, format: p.format, hd: p.quality === 'ultra', image: p.image || null, character, engine: p.engine, onStatus: m => set(m) });
       job.preview = URL.createObjectURL(r.blob);
       it = { id: uid(), type: 'image', blob: r.blob, ext: 'png', prompt: p.prompt, style: p.style, format: p.format, quality: p.quality,
         character: character && character.name, engine: r.engine, fav: false, ts: Date.now() };
@@ -331,11 +332,12 @@ async function renderLibrary() {
 }
 function renderProfile() {
   $('[data-name-full]').textContent = (Settings.get('name') || 'ma belle') + ' · créations sur cet appareil';
-  $('#ai-state').textContent = serverBase() ? 'Serveur + Agnes' : hasAgnes() ? 'Agnes ✓' : 'Gratuit';
+  $('#ai-state').textContent = [serverBase() && 'Serveur', hasAgnes() && 'Agnes', hasQwen() && 'Qwen'].filter(Boolean).join(' + ') || 'Gratuit';
 }
 function renderSettings() {
   $('#set-key').value = Settings.get('agnesKey'); $('#set-server').value = Settings.get('serverUrl');
   $('#set-token').value = Settings.get('serverToken'); $('#set-patience').value = String(Settings.get('patience'));
+  $('#set-hf').value = Settings.get('hfToken'); $('#set-imgengine').value = Settings.get('imgEngine');
 }
 function renderPrefs() {
   $('#pref-name').value = Settings.get('name'); $('#pref-format').value = Settings.get('format');
@@ -735,7 +737,9 @@ const OPEN_SOURCE = [
     ['Wikimedia Commons / Wikipédia', 'https://commons.wikimedia.org', 'Photos libres et connaissances pour l\'Agent IA.', true],
     ['LTX-Video (Lightricks)', 'https://github.com/Lightricks/LTX-Video', 'Modèle vidéo rapide utilisé par le serveur GPU gratuit (notebook Colab/Kaggle).', true],
     ['Wan 2.x (Alibaba)', 'https://github.com/Wan-Video/Wan2.2', 'Modèle vidéo de haute qualité (Apache 2.0), option du serveur GPU.', true],
-    ['Pollinations', 'https://github.com/pollinations/pollinations', 'Images gratuites sans clé (secours).', true]]],
+    ['Pollinations', 'https://github.com/pollinations/pollinations', 'Images gratuites sans clé (secours).', true],
+    ['Qwen-Image / Qwen-Image-Edit (Alibaba)', 'https://huggingface.co/spaces/Qwen/Qwen-Image-2512', 'Images et retouches open source (Apache 2.0) sur les GPU gratuits de Hugging Face.', true],
+    ['wsrv.nl', 'https://github.com/weserv/images', 'Proxy d\'images open source pour récupérer les photos du web.', true]]],
   ['Vidéo IA à faire tourner gratuitement (Colab / Kaggle / PC)', [
     ['FramePack', 'https://github.com/lllyasviel/FramePack', 'Anime une image en vidéo longue même avec 6 Go de VRAM : idéal pour « Image → Vidéo ».'],
     ['HunyuanVideo (Tencent)', 'https://github.com/Tencent/HunyuanVideo', 'Vidéos très réalistes ; demande un gros GPU.'],
@@ -780,7 +784,7 @@ function createImageNow() {
   const prompt = $('#img-prompt').value.trim();
   if (prompt.length < 3) return toast('Décris ton image ✍️', 'err');
   if (form.imgMode === 'i2i' && !form.imgUpload) return toast('Choisis d\'abord une photo', 'err');
-  const params = { prompt, style: form.imgStyle, format: form['img-format'], quality: form['img-quality'], characterId: form['img-char'] || null,
+  const params = { prompt, style: form.imgStyle, format: form['img-format'], quality: form['img-quality'], engine: form['img-engine'], characterId: form['img-char'] || null,
     image: form.imgMode === 'i2i' ? form.imgUpload : null };
   const n = form['img-count'];
   if (n === 1) return startJob('image', params);
@@ -806,12 +810,20 @@ function createVideoNow() {
 async function saveSettings() {
   Settings.set('agnesKey', $('#set-key').value.trim()); Settings.set('serverUrl', $('#set-server').value.trim());
   Settings.set('serverToken', $('#set-token').value.trim()); Settings.set('patience', +$('#set-patience').value);
+  Settings.set('hfToken', $('#set-hf').value.trim()); Settings.set('imgEngine', $('#set-imgengine').value); form['img-engine'] = Settings.get('imgEngine'); refreshPicks();
   const st = $('#set-status'); st.className = 'status-line'; st.textContent = 'Test en cours…';
   const out = []; let ok = true;
   if (hasAgnes()) {
     try { await agnesChat([{ role: 'user', content: 'Réponds juste: OK' }]); out.push('✓ Clé Agnes valide'); }
     catch (e) { ok = false; out.push('✕ Agnes : ' + e.message); }
   } else out.push('Pas de clé Agnes : mode gratuit Pollinations');
+  if (hasQwen()) {
+    try {
+      const r = await fetchWithTimeout('https://huggingface.co/api/whoami-v2', 15000, { headers: { Authorization: 'Bearer ' + Settings.get('hfToken').trim() } });
+      if (!r.ok) throw new Error('token refusé');
+      const d = await r.json(); out.push(`✓ Hugging Face : ${d.name}`);
+    } catch (e) { ok = false; out.push('✕ Hugging Face : ' + e.message); }
+  }
   if (serverBase()) {
     try { const d = await checkServer(); out.push(`✓ Serveur connecté (${d.backends.join(' → ') || 'aucun moteur'})`); }
     catch (e) { ok = false; out.push('✕ Serveur : ' + (e.name === 'AbortError' ? 'délai dépassé' : e.message)); }

@@ -405,8 +405,8 @@ const PROGRESSIONS = {
 };
 const midiHz = m => 440*Math.pow(2,(m-69)/12);
 
-function createMusic(ctx, kind, duration, sceneLen){
-  const dest = ctx.createMediaStreamDestination();
+function createMusic(ctx, kind, duration, sceneLen, sharedDest, level = .8){
+  const dest = sharedDest || ctx.createMediaStreamDestination();
   const master = ctx.createGain(); master.gain.value = 0;
   const filter = ctx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value = kind==='pulse'?1400:900; filter.Q.value=.7;
   // Réverbération simple
@@ -449,8 +449,8 @@ function createMusic(ctx, kind, duration, sceneLen){
       }
     }
   }
-  master.gain.setValueAtTime(0,t0); master.gain.linearRampToValueAtTime(.8,t0+1.5);
-  master.gain.setValueAtTime(.8,t0+Math.max(1.5,duration-2)); master.gain.linearRampToValueAtTime(0,t0+duration);
+  master.gain.setValueAtTime(0,t0); master.gain.linearRampToValueAtTime(level,t0+1.5);
+  master.gain.setValueAtTime(level,t0+Math.max(1.5,duration-2)); master.gain.linearRampToValueAtTime(0,t0+duration);
   return dest.stream;
 }
 
@@ -485,7 +485,7 @@ function drawKenBurns(ctx, img, W, H, kb, p, extraScale=1, offX=0, alpha=1){
   ctx.globalAlpha = 1;
 }
 
-async function renderVideo({images, duration, transition, motion, caption, cinema, audio, W, H, onFrame, onProgress}){
+async function renderVideo({images, duration, transition, motion, caption, cinema, audio, voice, W, H, onFrame, onProgress}){
   const canvas = document.createElement('canvas'); canvas.width=W; canvas.height=H;
   const ctx = canvas.getContext('2d');
   const n = images.length, T = n>1 ? Math.min(1, duration/n*0.3) : 0;
@@ -554,11 +554,18 @@ async function renderVideo({images, duration, transition, motion, caption, cinem
   draw(0);
   const stream = canvas.captureStream(FPS);
   let actx = null;
-  if(audio !== 'none' && (window.AudioContext||window.webkitAudioContext)){
+  if((audio !== 'none' || voice) && (window.AudioContext||window.webkitAudioContext)){
     try{
       actx = new (window.AudioContext||window.webkitAudioContext)();
       await actx.resume();
-      createMusic(actx, audio, duration, sceneLen).getAudioTracks().forEach(tr=>stream.addTrack(tr));
+      const dest = actx.createMediaStreamDestination();
+      if(audio !== 'none') createMusic(actx, audio, duration, sceneLen, dest, voice ? .35 : .8);   // musique plus douce sous la voix
+      if(voice){   // voix off (WAV) mixée dans la vidéo
+        const buf = await actx.decodeAudioData(await voice.arrayBuffer());
+        const src = actx.createBufferSource(), g = actx.createGain(); g.gain.value = 1.15;
+        src.buffer = buf; src.connect(g); g.connect(dest); src.start(actx.currentTime + .6);
+      }
+      dest.stream.getAudioTracks().forEach(tr=>stream.addTrack(tr));
     }catch(e){ actx=null; }
   }
   const mime = pickMime();
@@ -589,6 +596,66 @@ async function renderVideo({images, duration, transition, motion, caption, cinem
 
 
 /* ════════════════════════════════════════════════════════════════
+   VOIX OFF — Piper (open source, MIT) dans le navigateur via vits-web : gratuit, illimité, hors serveur
+   ════════════════════════════════════════════════════════════════ */
+const VOICES = { 'fr_FR-siwis-medium': 'Siwis (femme, FR)', 'fr_FR-upmc-medium': 'UPMC (femme, FR)', 'fr_FR-tom-medium': 'Tom (homme, FR)',
+  'fr_FR-gilles-low': 'Gilles (homme, FR)', 'en_US-amy-medium': 'Amy (femme, EN)', 'en_US-ryan-medium': 'Ryan (homme, EN)' };
+let _tts = null;
+async function narrate(text, voiceId = 'fr_FR-siwis-medium', onStatus = () => {}) {
+  if (!_tts) { onStatus('Chargement de la voix (1re fois, ~60 Mo)…'); _tts = await import('https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/+esm'); }
+  onStatus('Enregistrement de la voix off…');
+  return _tts.predict({ text: String(text).slice(0, 1500), voiceId: VOICES[voiceId] ? voiceId : 'fr_FR-siwis-medium' });
+}
+async function audioDuration(blob) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try { return (await ctx.decodeAudioData(await blob.arrayBuffer())).duration; } finally { ctx.close(); }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DÉTOURAGE — MODNet (Apache 2.0) via Transformers.js, dans le navigateur
+   ════════════════════════════════════════════════════════════════ */
+let _tf = null, _matting = null;
+async function removeBackground(blob, onStatus = () => {}) {
+  if (!_tf) { onStatus('Chargement de l\'outil de détourage…'); _tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5/+esm'); }
+  if (!_matting) _matting = await _tf.pipeline('background-removal', 'Xenova/modnet', { dtype: 'fp32' });
+  onStatus('Détourage en cours…');
+  const url = URL.createObjectURL(blob);
+  try { const out = await _matting(url); const img = Array.isArray(out) ? out[0] : out; return await img.toBlob(); }
+  finally { URL.revokeObjectURL(url); }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   VIDÉO IA OPEN SOURCE — LTX-2.3 et LTX-Video (Lightricks) sur les Spaces officiels Hugging Face
+   (GPU gratuits ZeroGPU, quota par personne avec le token Hugging Face gratuit)
+   ════════════════════════════════════════════════════════════════ */
+const LTX23 = 'https://lightricks-ltx-2-3.hf.space', LTXD = 'https://lightricks-ltx-video-distilled.hf.space';
+const LTX_DIMS = { '9:16': [576, 1024, 480, 832], '16:9': [1024, 576, 832, 480], '1:1': [768, 768, 640, 640] };
+async function hfVideo({ prompt, duration, format, image, onStatus }) {
+  const [w23, h23, wd, hd] = LTX_DIMS[format] || LTX_DIMS['9:16'];
+  const errors = [];
+  // 1) LTX-2.3 : jusqu'à 10 s, avec le son
+  try {
+    const file = image ? await qwenUpload(LTX23, await shrinkImage(image, 1024)) : null;
+    onStatus('LTX-2.3 (open source) : en file d\'attente…');
+    const out = await gradioRun(LTX23, 'generate_video', [file, prompt, Math.min(10, Math.max(2, duration)), false, Math.floor(Math.random() * 1e6), true, h23, w23],
+      m => onStatus(m.replace('Qwen (Hugging Face)', 'LTX-2.3').replace('Qwen crée ton image sur GPU', 'LTX-2.3 anime ta vidéo sur GPU')));
+    const url = findFileUrl(out); if (!url) throw new Error('vidéo introuvable');
+    return { url, engine: 'LTX-2.3 (open source)' };
+  } catch (e) { errors.push('LTX-2.3 : ' + e.message); if (e.quota && /épuisé/.test(e.message)) {} }
+  // 2) LTX-Video distillé : jusqu'à 8,5 s
+  try {
+    const file = image ? await qwenUpload(LTXD, await shrinkImage(image, 1024)) : null;
+    const api = image ? 'image_to_video' : 'text_to_video';
+    const out = await gradioRun(LTXD, api, [prompt, 'worst quality, inconsistent motion, blurry, jittery, distorted', file, null, hd, wd,
+      image ? 'image-to-video' : 'text-to-video', Math.min(8.5, Math.max(2, duration)), 9, 42, true, 1, true],
+      m => onStatus(m.replace('Qwen (Hugging Face)', 'LTX-Video').replace('Qwen crée ton image sur GPU', 'LTX-Video anime ta vidéo sur GPU')));
+    const url = findFileUrl(out); if (!url) throw new Error('vidéo introuvable');
+    return { url, engine: 'LTX-Video (open source)' };
+  } catch (e) { errors.push('LTX-Video : ' + e.message); }
+  throw new Error(errors.join(' · '));
+}
+
+/* ════════════════════════════════════════════════════════════════
    CRÉATION D'UNE VIDÉO — cascade complète
    auto : Serveur/Agnes Vidéo (patience limitée) → montage d'images Agnes/Pollinations
    ════════════════════════════════════════════════════════════════ */
@@ -598,8 +665,21 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
   const full = withStyle(characterPrompt(o.prompt, ch, false), o.style);
   const notes = [];
 
-  // 1) Vraie vidéo IA (mouvements générés par l'IA)
-  if (o.engine !== 'montage' && (serverBase() || hasAgnes())) {
+  // 1a) Vraie vidéo IA open source : LTX sur Hugging Face (avec token gratuit)
+  if ((o.engine === 'auto' && hasQwen()) || o.engine === 'ltx') {
+    try {
+      onStatus('Envoi à LTX (open source, Hugging Face)…', .02);
+      const r = await hfVideo({ prompt: full, duration: o.duration, format: o.format, image: o.image || (ch && ch.photos && ch.photos[0]) || null,
+        onStatus: m => onStatus(m) });
+      let blob = null; try { const vr = await fetchWithTimeout(r.url, 300000, { headers: hfHeaders() }); if (vr.ok) blob = await vr.blob(); } catch (e) {}
+      return { url: r.url, blob, ext: 'mp4', engine: r.engine, notes };
+    } catch (e) {
+      if (o.engine === 'ltx') throw new Error('Vidéo open source : ' + e.message);
+      notes.push(`LTX indisponible (${e.message})`);
+    }
+  }
+  // 1b) Vraie vidéo IA (Agnes ou serveur GPU)
+  if (o.engine !== 'montage' && o.engine !== 'ltx' && (serverBase() || hasAgnes())) {
     const patience = o.engine === 'ai' ? 40 : (serverBase() ? 30 : +Settings.get('patience') || 1);
     try {
       onStatus('Envoi à l\'IA vidéo…', .02);
@@ -659,8 +739,15 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
   const images = []; bitmaps.forEach(img => { for (let k = 0; k < shotsPer; k++) images.push({ img, shot: k }); });
 
   onStatus('Montage et enregistrement…', .65);
+  let voice = null, duration = o.duration;
+  if (o.narration && o.narration.trim()) {
+    try {
+      voice = await narrate(o.narration, o.voice, m => onStatus(m, .63));
+      duration = Math.max(duration, Math.ceil((await audioDuration(voice)) + 1.5));   // la vidéo s'allonge si la voix est plus longue
+    } catch (e) { notes.push('voix off indisponible (' + e.message + ')'); }
+  }
   onStatus('En attente d\'un créneau d\'enregistrement…', .64);
-  const out = await recordSlot(() => renderVideo({ images, duration: o.duration, transition: o.transition || 'mix', motion: o.motion || 1, caption: o.caption || '',
+  const out = await recordSlot(() => renderVideo({ images, duration, voice, transition: o.transition || 'mix', motion: o.motion || 1, caption: o.caption || '',
     cinema: o.cinema !== false, audio: o.music || 'ambient', W: f.vw, H: f.vh,
     onFrame: c => onCanvas && onCanvas(c),
     onProgress: p => onStatus(`Enregistrement ${Math.round(p * 100)} %`, .65 + .35 * p) }));

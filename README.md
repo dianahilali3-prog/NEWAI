@@ -10,7 +10,11 @@ Ouvrez `index.html` (ou publiez le dépôt sur GitHub Pages), puis **Profil → 
 | Image open source | **Qwen-Image 2512** et **Qwen-Image-Edit 2511** (Alibaba, Apache 2.0) sur les Spaces officiels Hugging Face (GPU gratuits, quota par personne : ajouter un token Hugging Face gratuit) ; repli automatique sur Agnes puis Pollinations | selon la file Hugging Face |
 | Studio en lot | Jusqu'à 30 images et vidéos, chacune son prompt, en parallèle | 4 images en 16 s ; 6 créations mixtes en 1 min 44 |
 | Personnages | Photo de référence + description, même visage via Agnes image → image | ~11 s par image |
+| Vidéo IA open source | **LTX-2.3** (jusqu'à 10 s, avec le son) puis **LTX-Video** (Lightricks) sur les Spaces officiels Hugging Face, GPU gratuits avec un token Hugging Face gratuit | selon la file Hugging Face |
 | Vidéo IA | Agnes `agnes-video-2.5-flash` (file souvent pleine : l'app réessaie) | variable |
+| Voix off | **Piper** (voix françaises, MIT) via **vits-web**, générée dans le navigateur, gratuite et illimitée ; texte écrit par l'IA en option | ~6 s la 1re fois, puis ~2 s |
+| Détourage | **MODNet** (Apache 2.0) via **Transformers.js**, dans le navigateur | ~5 s |
+| Dictée | Reconnaissance vocale intégrée au navigateur (Agent IA) | instantané |
 | Vidéo — repli automatique | Montage animé dans le navigateur à partir d'images Agnes créées en parallèle | ~40 s pour 10 s |
 
 Nano Banana 2 (Google, `gemini-3.1-flash-image`) n'est pas open source et n'a pas d'offre gratuite officielle (payant chez Google et Cloudflare) : il n'est pas intégré.

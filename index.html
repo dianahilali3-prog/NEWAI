@@ -61,6 +61,7 @@
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-clip" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
     <symbol id="i-code" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></symbol>
   </defs>
 </svg>
@@ -113,6 +114,7 @@
     <div class="chat" id="chat"></div>
     <form class="composer hidden" id="composer" autocomplete="off">
       <button type="button" class="attach" id="chat-attach" aria-label="Joindre une photo"><svg><use href="#i-clip"/></svg></button>
+      <button type="button" class="attach hidden" id="chat-mic" aria-label="Dicter"><svg><use href="#i-mic"/></svg></button>
       <img id="chat-attach-pv" class="hidden" alt="">
       <input id="chat-input" placeholder="Écris, demande une recherche web, une création…" maxlength="3000">
       <button type="submit" aria-label="Envoyer"><svg><use href="#i-send"/></svg></button>
@@ -172,6 +174,10 @@
       <button class="opt" data-pick="vid-music"><svg><use href="#i-music"/></svg><span>Musique</span><em data-show="vid-music"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-pick="vid-transition"><svg><use href="#i-layers"/></svg><span>Transitions</span><em data-show="vid-transition"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <label class="opt"><svg><use href="#i-text"/></svg><span>Texte</span><input type="text" id="vid-caption" maxlength="60" placeholder="optionnel"></label>
+      <button class="opt" data-pick="vid-voice"><svg><use href="#i-chat"/></svg><span>Voix off</span><em data-show="vid-voice"></em><svg class="chev"><use href="#i-chev"/></svg></button>
+      <div class="opt" style="display:block"><div class="prompt"><textarea id="vid-narration" style="min-height:62px" placeholder="Texte lu par la voix off (optionnel). Ex : Bienvenue dans l'univers DianaLuxe…"></textarea>
+        <button class="magic" id="vid-narr-ai" title="Écrire la voix off avec l'IA"><svg><use href="#i-wand"/></svg></button></div>
+        <p class="help" style="margin-top:4px">Voix open source (Piper) générée sur ton téléphone : gratuite et illimitée. Ajoutée aux montages animés.</p></div>
     </div>
     <button class="btn btn-pink btn-lg" id="vid-go">Générer la vidéo <svg width="16" height="16"><use href="#i-sparkle"/></svg></button>
   </section>
@@ -256,9 +262,9 @@
       <p class="help">Quand la file vidéo d'Agnes est pleine, l'app réessaie pendant ce temps puis crée un montage animé avec des images Agnes.</p>
     </div>
     <div class="card box">
-      <h5>Qwen-Image (open source, Hugging Face)</h5>
+      <h5>Hugging Face : Qwen-Image + vidéo IA LTX (open source)</h5>
       <div class="field"><input id="set-hf" type="password" placeholder="Token Hugging Face (hf_…)" autocomplete="off"></div>
-      <p class="help">Qwen-Image d'Alibaba est open source (Apache 2.0) et tourne gratuitement sur les GPU de Hugging Face, avec un quota de temps GPU par personne. Crée un compte gratuit sur huggingface.co, puis Settings → Access Tokens → « Create new token » (type Read) et colle-le ici. Le token reste sur cet appareil.</p>
+      <p class="help">Qwen-Image (Alibaba) et LTX-2.3 / LTX-Video (Lightricks, vidéos IA jusqu'à 10 s avec le son) sont open source et tournent gratuitement sur les GPU de Hugging Face, avec un quota de temps GPU par personne. Crée un compte gratuit sur huggingface.co, puis Settings → Access Tokens → « Create new token » (type Read) et colle-le ici. Le token reste sur cet appareil.</p>
       <div class="field" style="margin-top:12px"><label>Moteur d'images par défaut</label>
         <select id="set-imgengine"><option value="auto">Auto (Agnes → Qwen → Pollinations)</option><option value="agnes">Agnes</option><option value="qwen">Qwen-Image (open source)</option><option value="pollinations">Pollinations</option></select></div>
     </div>
@@ -302,6 +308,8 @@
       <p>La file d'attente vidéo gratuite d'Agnes est souvent pleine. L'app réessaie toute seule toutes les 30 s. Augmente la patience dans Paramètres de l'IA, ou utilise le serveur GPU gratuit (Colab/Kaggle).</p>
       <h5>Installer l'application</h5>
       <p>Sur iPhone : ouvre le site dans Safari → bouton Partager → « Sur l'écran d'accueil ». Sur Android : menu de Chrome → « Installer l'application ». Éclat Ai s'ouvre alors en plein écran, comme une vraie app.</p>
+      <h5>Vidéos IA open source, voix off, détourage</h5>
+      <p>Avec ton token Hugging Face, les vidéos passent d'abord par LTX-2.3 (vraie vidéo IA, avec le son). Dans Options avancées d'une vidéo, ajoute une voix off en français (générée sur ton téléphone). Sur une image, « Plus » → « Détourer » enlève le fond.</p>
       <h5>Qwen-Image et Nano Banana</h5>
       <p>Qwen-Image (Alibaba) est open source et gratuit sur Hugging Face avec un quota GPU par personne : ajoute ton token Hugging Face gratuit dans Paramètres de l'IA. Nano Banana 2 (Google) n'est pas open source et n'a pas d'accès gratuit officiel : il n'est donc pas intégré.</p>
       <h5>Studio en lot</h5>

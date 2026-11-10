@@ -310,3 +310,5 @@ img,video,canvas{display:block}
 .os-item .tag.used{border-color:var(--ok);color:var(--ok)}
 .os-item p{font-size:12px;color:var(--dim);margin-top:3px}
 .os-item small{font-size:10.5px;color:var(--faint);word-break:break-all}
+
+.composer .attach.rec{color:var(--pink);animation:pulse 1s ease infinite}

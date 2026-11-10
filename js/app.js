@@ -87,9 +87,11 @@ const PICKS = {
   'img-engine': { title: 'Moteur d\'image', options: () => [{ value: 'auto', label: 'Auto', sub: 'Agnes → Qwen → Pollinations' }, { value: 'agnes', label: 'Agnes', sub: 'rapide, haute qualité (clé Agnes)' }, { value: 'qwen', label: 'Qwen-Image (open source)', sub: 'GPU gratuits Hugging Face, quota par personne' }, { value: 'pollinations', label: 'Pollinations', sub: 'gratuit, 1 image / 45 s' }] },
   'vid-char': { title: 'Personnage', options: charOptions },
   'vid-count': { title: 'Nombre de vidéos (variantes)', options: () => [1, 2, 3, 4, 5, 10].map(n => ({ value: n, label: String(n) })) },
+  'vid-voice': { title: 'Voix off', options: () => Object.entries(VOICES).map(([v, l]) => ({ value: v, label: l })) },
   'vid-engine': { title: 'Moteur vidéo', options: () => [
-    { value: 'auto', label: 'Auto', sub: 'IA vidéo Agnes, sinon montage animé (recommandé)' },
-    { value: 'ai', label: 'IA vidéo uniquement', sub: 'attend qu\'Agnes ait de la place (jusqu\'à 40 min)' },
+    { value: 'auto', label: 'Auto', sub: 'LTX open source (token HF) → Agnes → montage animé' },
+    { value: 'ltx', label: 'Vidéo IA open source (LTX-2.3)', sub: 'vrais mouvements + son, GPU gratuits Hugging Face (token)' },
+    { value: 'ai', label: 'Agnes Vidéo uniquement', sub: 'attend qu\'Agnes ait de la place (jusqu\'à 40 min)' },
     { value: 'montage', label: 'Montage animé', sub: 'rapide et toujours disponible' }] },
   'vid-format': { title: 'Format', options: () => fmtOptions },
   'st-format': { title: 'Format du lot', options: () => fmtOptions },
@@ -99,7 +101,7 @@ const PICKS = {
 const form = {
   'img-format': Settings.get('format'), 'img-engine': Settings.get('imgEngine'), 'img-quality': 'hd', 'img-count': 1, 'img-char': '', imgMode: 't2i', imgStyle: 'cinema', imgUpload: null,
   'vid-engine': 'auto', 'vid-format': Settings.get('format'), 'vid-music': Settings.get('music'), 'vid-transition': 'mix', 'vid-char': '', 'vid-count': 1,
-  vidMode: 't2v', vidStyle: 'cinema', vidDuration: 10, vidUpload: null, 'st-format': Settings.get('format'),
+  vidMode: 't2v', vidStyle: 'cinema', vidDuration: 10, vidUpload: null, 'vid-voice': 'fr_FR-siwis-medium', 'st-format': Settings.get('format'),
 };
 const labelOf = (k, v) => (PICKS[k].options().find(o => o.value === v) || {}).label || (v === '' ? 'Aucun' : v);
 function refreshPicks() { $$('[data-show]').forEach(e => e.textContent = labelOf(e.dataset.show, form[e.dataset.show])); }
@@ -311,12 +313,21 @@ async function renderItem(id) {
   $('#item-fav').onclick = async () => { it.fav = !it.fav; await DB.put(it); $('#item-fav').classList.toggle('on', it.fav); toast(it.fav ? '💖 Ajouté aux favoris' : 'Retiré des favoris'); };
   $('#item-more').onclick = async () => {
     const opts = [{ value: 'copy', label: 'Copier le prompt', icon: 'text' }, { value: 'reuse', label: 'Réutiliser ce prompt', icon: 'redo' }];
-    if (it.type === 'image') opts.push({ value: 'char', label: 'Créer un personnage avec cette image', icon: 'people' });
+    if (it.type === 'image') opts.push({ value: 'cut', label: 'Détourer (fond transparent)', sub: 'IA open source sur ton téléphone', icon: 'image' }, { value: 'char', label: 'Créer un personnage avec cette image', icon: 'people' });
     opts.push({ value: 'del', label: 'Supprimer', icon: 'trash' });
     const v = await sheet('Plus', opts);
     if (v === 'copy') { navigator.clipboard?.writeText(it.prompt); toast('Prompt copié'); }
     if (v === 'reuse') { const k = it.type === 'image' ? 'img' : 'vid'; $(`#${k}-prompt`).value = it.prompt; go(it.type === 'image' ? 'create-image' : 'create-video'); }
     if (v === 'char') { ce = { id: null, photos: [it.blob], name: '', desc: '' }; go('character', 'new'); }
+    if (v === 'cut') {
+      if (!it.blob) return toast('Image indisponible', 'err');
+      toast('✂️ Détourage en cours… (1re fois : chargement de l\'outil)');
+      try {
+        const png = await removeBackground(it.blob);
+        const n = { ...it, id: uid(), blob: png, ext: 'png', engine: (it.engine || '') + ' · détourée (MODNet)', fav: false, ts: Date.now() };
+        await DB.put(n); toast('✨ Image détourée'); go('item', n.id);
+      } catch (e) { toast('Détourage impossible : ' + e.message, 'err'); }
+    }
     if (v === 'del' && confirm('Supprimer cette création ?')) { await DB.del(it.id); toast('Supprimée'); back(); }
   };
 }
@@ -515,6 +526,7 @@ Tu as de vrais outils :
 - web_search : chercher sur internet (actualité, tendances, lieux, mode, infos récentes). Utilise-le dès qu'une info peut être récente ou que tu n'es pas sûre. Requête simple, en français de préférence, sans guillemets ni « site: ». En général UNE recherche suffit. Cite les sources avec leurs liens.
 - read_webpage : lire une page web précise, UNIQUEMENT un lien présent dans les résultats de recherche ou donné par l'utilisatrice (jamais un lien deviné). Au plus 2 pages par demande. Tu peux appeler plusieurs outils en même temps.
 - search_images : trouver des photos libres sur le web (Wikimedia Commons) ; elles s'affichent dans le chat et peuvent servir de référence (« web:N »).
+- create_videos accepte une voix off ("narration", en français) quand c'est pertinent (pub, présentation, récit).
 - create_images / create_videos : lancer de vraies créations (jusqu'à 30 à la fois, chacune avec son propre prompt). Écris des prompts détaillés en anglais (sujet, tenue, décor, lumière, ambiance, cadrage ; pour une vidéo : action et mouvement de caméra). Lance directement quand la demande est claire.
 - list_characters / save_character : personnages de référence de l'utilisatrice (même visage d'une création à l'autre). Pour utiliser un personnage, passe son nom dans "character".
 Les photos envoyées par l'utilisatrice sont nommées « photo:N » ; tu peux les voir. RÈGLE : dès qu'on te demande de transformer, modifier, styliser, animer ou t'inspirer d'une photo (envoyée « photo:N » ou trouvée sur le web « web:N »), passe OBLIGATOIREMENT cette référence dans le champ "reference" de create_images / create_videos (choisis la photo web la plus adaptée).
@@ -531,7 +543,8 @@ const TOOLS = [
     reference: { type: 'string', description: 'image de référence : photo:N ou web:N' }, count: { type: 'integer', minimum: 1, maximum: 30 }, format: { type: 'string', enum: Object.keys(FORMATS) } }, required: ['prompt'] } } }, required: ['items'] } } },
   { type: 'function', function: { name: 'create_videos', description: 'Crée une ou plusieurs vidéos en parallèle (30 max).', parameters: { type: 'object', properties: { items: { type: 'array', maxItems: 30, items: { type: 'object', properties: {
     prompt: { type: 'string', description: 'prompt détaillé en anglais avec action et mouvement de caméra' }, duration: { type: 'integer', enum: [5, 10, 15, 30] }, style: { type: 'string', enum: STYLE_KEYS },
-    character: { type: 'string' }, reference: { type: 'string', description: 'image de départ : photo:N ou web:N' }, format: { type: 'string', enum: Object.keys(FORMATS) } }, required: ['prompt'] } } }, required: ['items'] } } },
+    character: { type: 'string' }, reference: { type: 'string', description: 'image de départ : photo:N ou web:N' }, format: { type: 'string', enum: Object.keys(FORMATS) },
+    narration: { type: 'string', description: 'texte de voix off en français (optionnel)' }, voice: { type: 'string', enum: Object.keys(VOICES) } }, required: ['prompt'] } } }, required: ['items'] } } },
   { type: 'function', function: { name: 'list_characters', description: 'Liste les personnages de référence enregistrés.', parameters: { type: 'object', properties: {} } } },
   { type: 'function', function: { name: 'save_character', description: 'Enregistre un personnage de référence (avec une photo de référence, ou un portrait généré par l\'IA).', parameters: { type: 'object', properties: {
     name: { type: 'string' }, description: { type: 'string', description: 'apparence physique détaillée' }, reference: { type: 'string', description: 'photo:N ou web:N' }, generate_portrait: { type: 'boolean' } }, required: ['name', 'description'] } } },
@@ -635,7 +648,8 @@ async function runTool(name, args, ctx) {
         const params = type === 'image'
           ? { prompt: it.prompt, style: STYLES[it.style] ? it.style : 'cinema', format: it.format || Settings.get('format'), quality: 'hd', characterId: ch ? ch.id : null, image }
           : { prompt: it.prompt, style: STYLES[it.style] ? it.style : 'cinema', format: it.format || Settings.get('format'), duration: [5, 10, 15, 30].includes(it.duration) ? it.duration : 10,
-              engine: 'auto', music: Settings.get('music'), transition: 'mix', cinema: !!Settings.get('cinema'), characterId: ch ? ch.id : null, image };
+              engine: 'auto', music: Settings.get('music'), transition: 'mix', cinema: !!Settings.get('cinema'), characterId: ch ? ch.id : null, image,
+              narration: it.narration || '', voice: it.voice || 'fr_FR-siwis-medium' };
         const job = startJob(type, params, { navigate: false, batch: ctx.batch() });
         job.chat = true; ids.push(job.id);
       }
@@ -739,7 +753,10 @@ const OPEN_SOURCE = [
     ['Wan 2.x (Alibaba)', 'https://github.com/Wan-Video/Wan2.2', 'Modèle vidéo de haute qualité (Apache 2.0), option du serveur GPU.', true],
     ['Pollinations', 'https://github.com/pollinations/pollinations', 'Images gratuites sans clé (secours).', true],
     ['Qwen-Image / Qwen-Image-Edit (Alibaba)', 'https://huggingface.co/spaces/Qwen/Qwen-Image-2512', 'Images et retouches open source (Apache 2.0) sur les GPU gratuits de Hugging Face.', true],
-    ['wsrv.nl', 'https://github.com/weserv/images', 'Proxy d\'images open source pour récupérer les photos du web.', true]]],
+    ['wsrv.nl', 'https://github.com/weserv/images', 'Proxy d\'images open source pour récupérer les photos du web.', true],
+    ['LTX-2.3 / LTX-Video (Lightricks)', 'https://huggingface.co/spaces/Lightricks/LTX-2-3', 'Vraies vidéos IA (jusqu\'à 10 s, avec le son) sur les GPU gratuits de Hugging Face.', true],
+    ['Piper + vits-web', 'https://github.com/diffusionstudio/vits-web', 'Voix off en français générée dans le téléphone, gratuite et illimitée.', true],
+    ['Transformers.js + MODNet', 'https://github.com/huggingface/transformers.js', 'Détourage des images directement dans le téléphone.', true]]],
   ['Vidéo IA à faire tourner gratuitement (Colab / Kaggle / PC)', [
     ['FramePack', 'https://github.com/lllyasviel/FramePack', 'Anime une image en vidéo longue même avec 6 Go de VRAM : idéal pour « Image → Vidéo ».'],
     ['HunyuanVideo (Tencent)', 'https://github.com/Tencent/HunyuanVideo', 'Vidéos très réalistes ; demande un gros GPU.'],
@@ -754,7 +771,7 @@ const OPEN_SOURCE = [
     ['ffmpeg.wasm', 'https://github.com/ffmpegwasm/ffmpeg.wasm', 'Montage, conversion MP4 et assemblage de clips directement dans le navigateur.']]],
   ['IA dans le navigateur (gratuit, illimité, hors ligne)', [
     ['WebLLM', 'https://github.com/mlc-ai/web-llm', 'Fait tourner un modèle de chat dans le navigateur (WebGPU), sans serveur ni clé.'],
-    ['Transformers.js', 'https://github.com/huggingface/transformers.js', 'Détourage, reconnaissance vocale, vision… directement sur le téléphone.']]],
+    ['Swin2SR (agrandissement x2)', 'https://huggingface.co/Xenova/swin2SR-classical-sr-x2-64', 'Testé dans le navigateur : plus de 2 minutes par image sur téléphone, trop lent pour l\'instant.']]],
   ['Recherche web auto-hébergée', [
     ['SearXNG', 'https://github.com/searxng/searxng', 'Ton propre moteur de recherche sans pub ni limite pour l\'Agent IA.']]],
 ];
@@ -799,7 +816,8 @@ function createVideoNow() {
   if (!pickMime() && form['vid-engine'] !== 'ai') return toast('Ce navigateur ne peut pas enregistrer de vidéo : essaie Chrome ou Safari récent', 'err');
   const params = { prompt, style: form.vidStyle, format: form['vid-format'], duration: form.vidDuration, engine: form['vid-engine'],
     music: form['vid-music'], transition: form['vid-transition'], caption: $('#vid-caption').value.trim(), cinema: !!Settings.get('cinema'),
-    characterId: form['vid-char'] || null, image: form.vidMode === 'i2v' ? form.vidUpload : null };
+    characterId: form['vid-char'] || null, image: form.vidMode === 'i2v' ? form.vidUpload : null,
+    narration: $('#vid-narration').value.trim(), voice: form['vid-voice'] };
   const n = form['vid-count'];
   if (n === 1) return startJob('video', params);
   const b = newBatch('Vidéos');
@@ -829,6 +847,19 @@ async function saveSettings() {
     catch (e) { ok = false; out.push('✕ Serveur : ' + (e.name === 'AbortError' ? 'délai dépassé' : e.message)); }
   }
   st.className = 'status-line ' + (ok ? 'ok' : 'err'); st.textContent = out.join(' · ');
+}
+
+// Dictée vocale (reconnaissance vocale intégrée au navigateur, gratuite)
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null;
+function dictate(btn) {
+  if (recog) { recog.stop(); return; }
+  recog = new SR(); recog.lang = 'fr-FR'; recog.interimResults = true;
+  const input = $('#chat-input'), base = input.value ? input.value + ' ' : '';
+  recog.onresult = e => { input.value = base + [...e.results].map(r => r[0].transcript).join(''); };
+  recog.onend = () => { recog = null; btn.classList.remove('rec'); input.focus(); };
+  recog.onerror = e => toast('Micro : ' + (e.error === 'not-allowed' ? 'autorise le micro' : e.error), 'err');
+  btn.classList.add('rec'); recog.start();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -885,6 +916,15 @@ document.addEventListener('click', async e => {
   if (t.parentElement && t.parentElement.id === 'lib-tab') { libTab = t.dataset.v; t.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === t)); return renderLibrary(); }
   if (t.classList.contains('upload')) { const f = await pickFile(); if (f) setUpload(t.id === 'img-upload' ? 'img' : 'vid', f); return; }
   switch (t.id) {
+    case 'vid-narr-ai': {
+      if (!hasAgnes()) return toast('L\'écriture par l\'IA utilise ta clé Agnes', 'err');
+      const idea = $('#vid-prompt').value.trim(); if (!idea) return toast('Décris d\'abord ta vidéo ✍️', 'err');
+      t.classList.add('busy');
+      try { $('#vid-narration').value = (await agnesChat([{ role: 'system', content: `Tu écris des voix off courtes et élégantes en français pour des vidéos de ${form.vidDuration} secondes (environ ${Math.round(form.vidDuration * 2.3)} mots). Réponds uniquement par le texte à lire.` }, { role: 'user', content: idea }])).replace(/^["«\s]+|["»\s]+$/g, ''); }
+      catch (e) { toast(e.message, 'err'); }
+      t.classList.remove('busy'); return;
+    }
+    case 'chat-mic': return dictate(t);
     case 'img-go': return createImageNow();
     case 'vid-go': return createVideoNow();
     case 'vid-adv-h': t.classList.toggle('open'); return $('#vid-adv').classList.toggle('hidden');
@@ -943,6 +983,7 @@ window.addEventListener('beforeunload', e => { if ([...Jobs.values()].some(j => 
   const hp = new URLSearchParams(location.hash.slice(1));
   if (hp.get('server')) { Settings.set('serverUrl', hp.get('server')); Settings.set('serverToken', hp.get('token') || ''); location.replace('#settings'); }
   renderStyles(); refreshPicks(); setUpload('img', null); setUpload('vid', null); loadChars();
+  if (SR) $('#chat-mic').classList.remove('hidden');
   const splash = $('#splash');
   const show = () => { splash.classList.add('gone'); $('#nav').classList.remove('hidden'); setTimeout(() => splash.remove(), 700); };
   let seen = false; try { seen = sessionStorage.getItem('eclat_splash') === '1'; sessionStorage.setItem('eclat_splash', '1'); } catch (e) {}

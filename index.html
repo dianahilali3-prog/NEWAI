@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>DianaLuxe AI — Cascade gratuite</title>
+<style>
+:root{
+  --rose:#f4c2c2;--rose-metal:#e8a0b8;--rose-deep:#c96a8a;--rose-hot:#ff6b9d;
+  --silver:#d8d8e0;--silver-light:#f0f0f5;
+  --bg:#0a070d;--glass:rgba(26,21,31,0.78);--glass-border:rgba(232,160,184,0.15);
+  --ink:#f5eef5;--dim:#a898a8;--faint:#5a4a5a;
+  --ok:#7ad4a0;--err:#e86a8a;--warn:#e8b86a;
+  --radius:18px;--font:-apple-system,'BlinkMacSystemFont','Helvetica Neue',Arial,sans-serif;
+  --serif:Georgia,'Times New Roman',serif;--mono:ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{
+  background:radial-gradient(ellipse 70% 50% at 20% 0%,rgba(232,160,184,0.12) 0%,transparent 55%),
+  radial-gradient(ellipse 60% 40% at 100% 20%,rgba(200,180,220,0.08) 0%,transparent 50%),
+  var(--bg);background-attachment:fixed;color:var(--ink);font-family:var(--font);
+  min-height:100vh;padding:1.2rem 1rem 12rem;font-size:14px;line-height:1.55;max-width:1100px;margin:0 auto;
+}
+header{text-align:center;padding:1.5rem 0 1.8rem;position:relative;margin-bottom:1.2rem}
+header::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);
+  width:180px;height:1px;background:linear-gradient(90deg,transparent,var(--rose-metal),var(--silver),transparent);opacity:.4}
+.logo-mark{font-family:var(--serif);font-size:.65rem;letter-spacing:.55em;color:var(--rose-metal);
+  text-transform:uppercase;margin-bottom:.5rem;opacity:.85}
+h1{font-family:var(--serif);font-size:2.1rem;font-weight:300;
+  background:linear-gradient(135deg,var(--rose),var(--silver-light),var(--rose-metal));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;line-height:1.05}
+.subtitle{font-size:.78rem;color:var(--dim);font-style:italic;margin-top:.35rem}
+
+.toast{position:fixed;top:1.2rem;left:50%;transform:translateX(-50%) translateY(-140px);
+  background:#1a151f;border:1px solid var(--glass-border);border-left:3px solid var(--rose-hot);
+  color:var(--ink);padding:.85rem 1.4rem;border-radius:14px;font-size:.82rem;z-index:9999;opacity:0;
+  transition:all .35s;max-width:90vw;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.6);backdrop-filter:blur(20px)}
+.toast.visible{transform:translateX(-50%) translateY(0);opacity:1}
+.toast.success{border-left-color:var(--ok)}.toast.error{border-left-color:var(--err)}.toast.warn{border-left-color:var(--warn)}
+
+.panel{background:var(--glass);backdrop-filter:blur(24px);border:1px solid var(--glass-border);
+  border-radius:var(--radius);padding:1.1rem 1.2rem;margin-bottom:1rem}
+.engine-info{display:flex;align-items:center;gap:.6rem;padding:.6rem .8rem;
+  background:rgba(232,160,184,.06);border:1px solid rgba(232,160,184,.15);
+  border-radius:12px;font-size:.72rem;color:var(--dim)}
+.engine-info .ei-icon{font-size:1.2rem}
+.cascade-status{font-size:.68rem;padding:.5rem .7rem;border-radius:8px;margin-top:.5rem;
+  background:rgba(10,7,13,.5);font-family:var(--mono);color:var(--dim);line-height:1.6}
+.cascade-status .cs-ok{color:var(--ok)}
+.cascade-status .cs-err{color:var(--err)}
+.cascade-status .cs-warn{color:var(--warn)}
+
+.mode-tabs{display:flex;gap:.4rem;margin-bottom:.9rem}
+.mode-tab{flex:1;padding:.75rem .3rem;border-radius:12px;border:1px solid var(--glass-border);
+  background:rgba(10,7,13,.4);color:var(--dim);font-size:.72rem;font-weight:600;text-align:center;
+  cursor:pointer;transition:all .2s;font-family:inherit}
+.mode-tab.selected{background:linear-gradient(135deg,rgba(232,160,184,.15),rgba(200,180,220,.08));
+  border-color:var(--rose-metal);color:var(--rose)}
+
+.prompt-area{width:100%;min-height:100px;padding:1rem 1.1rem;border-radius:14px;
+  border:1px solid var(--glass-border);background:rgba(10,7,13,.6);color:var(--ink);
+  font-family:inherit;font-size:.9rem;resize:vertical}
+.prompt-area:focus{outline:none;border-color:var(--rose-metal);box-shadow:0 0 0 4px rgba(232,160,184,.08)}
+.prompt-area::placeholder{color:var(--faint);font-style:italic}
+
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:.65rem;margin-top:.8rem}
+.control label{display:block;font-size:.64rem;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--dim);margin-bottom:.3rem;font-weight:700}
+.control select{width:100%;padding:.65rem .7rem;border-radius:10px;border:1px solid var(--glass-border);
+  background:rgba(10,7,13,.6);color:var(--ink);font-size:.8rem;font-family:inherit;
+  -webkit-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path fill='%23e8a0b8' d='M0 0l5 6 5-6z'/></svg>");
+  background-repeat:no-repeat;background-position:right .7rem center;background-size:9px}
+.control select:focus{outline:none;border-color:var(--rose-metal)}
+
+.btn-generate{width:100%;padding:1.1rem;border-radius:14px;border:none;margin-top:1rem;
+  background:linear-gradient(135deg,var(--rose-deep),var(--rose-hot),var(--rose-metal),var(--silver));
+  color:#0a070d;font-size:.95rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+  cursor:pointer;transition:all .25s;font-family:inherit;position:relative;overflow:hidden;
+  box-shadow:0 10px 32px rgba(232,160,184,.25)}
+.btn-generate::after{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);
+  animation:shine 3s linear infinite}
+@keyframes shine{0%{left:-100%}100%{left:100%}}
+.btn-generate:hover:not(:disabled){box-shadow:0 14px 44px rgba(232,160,184,.45)}
+.btn-generate:active:not(:disabled){transform:scale(.98)}
+.btn-generate:disabled{opacity:.3;cursor:not-allowed;box-shadow:none}
+.btn-generate:disabled::after{display:none}
+
+.task-list{margin-top:.8rem}
+.task-item{background:rgba(10,7,13,.5);border:1px solid var(--glass-border);border-radius:14px;
+  padding:.85rem 1rem;margin-bottom:.6rem;transition:border-color .3s;animation:fadeIn .3s}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.task-item.processing{border-color:var(--rose-metal)}
+.task-item.done{border-color:var(--ok)}
+.task-item.error{border-color:var(--err)}
+.task-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem}
+.task-type{font-size:.66rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.task-type.image{color:var(--rose-hot)}.task-type.video{color:var(--silver)}
+.task-status{font-size:.64rem;color:var(--dim);font-family:var(--mono)}
+.task-prompt{font-size:.72rem;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;margin-bottom:.5rem;font-style:italic}
+.task-result{margin-top:.7rem;border-radius:10px;overflow:hidden;background:#000}
+.task-result img,.task-result video{width:100%;display:block;max-height:280px;object-fit:contain}
+.task-actions{display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap}
+.task-actions a,.task-actions button{flex:1;min-width:72px;padding:.55rem .3rem;border-radius:10px;
+  border:1px solid var(--glass-border);background:rgba(255,255,255,.03);color:var(--dim);
+  font-size:.64rem;font-weight:700;text-align:center;cursor:pointer;text-decoration:none;
+  font-family:inherit;transition:all .2s}
+.task-actions a:hover,.task-actions button:hover{color:var(--rose);border-color:var(--rose-metal)}
+
+.section{background:var(--glass);backdrop-filter:blur(24px);border:1px solid var(--glass-border);
+  border-radius:var(--radius);margin-bottom:1rem;overflow:hidden}
+.section-header{padding:.9rem 1.1rem;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.section-title{font-size:.7rem;text-transform:uppercase;letter-spacing:.18em;color:var(--dim);font-weight:700}
+.chevron{font-size:.62rem;color:var(--faint);transition:transform .25s}
+.section.open .chevron{transform:rotate(180deg);color:var(--rose-metal)}
+.section-body{max-height:0;overflow:hidden;transition:max-height .4s}
+.section.open .section-body{max-height:16000px}
+.section-content{padding:0 1.1rem 1.1rem}
+
+.history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:.55rem;margin-top:.6rem}
+.history-item{position:relative;border-radius:10px;overflow:hidden;border:1px solid var(--glass-border);
+  aspect-ratio:9/16;background:#000;cursor:pointer}
+.history-item img,.history-item video{width:100%;height:100%;object-fit:cover}
+.history-item .hist-type{position:absolute;top:3px;left:3px;padding:1px 5px;border-radius:3px;
+  font-size:.52rem;font-family:var(--mono);font-weight:700;background:rgba(0,0,0,.75);color:var(--rose-hot)}
+.history-empty{text-align:center;padding:2.2rem;color:var(--faint);font-size:.78rem;font-style:italic}
+
+.status-bar{position:fixed;bottom:0;left:0;right:0;background:rgba(10,7,13,.94);
+  backdrop-filter:blur(24px);border-top:1px solid var(--glass-border);color:var(--ink);
+  padding:.75rem 1.1rem;font-size:.72rem;display:flex;align-items:center;gap:.6rem;
+  transform:translateY(100%);transition:transform .3s;z-index:100;font-family:var(--mono)}
+.status-bar.visible{transform:translateY(0)}
+.spinner{width:12px;height:12px;border:2px solid rgba(232,160,184,.2);border-top-color:var(--rose-hot);
+  border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hidden{display:none!important}
+@media(max-width:480px){h1{font-size:1.6rem}.controls{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">✦ DianaLuxe</div>
+  <h1>DianaLuxe AI</h1>
+  <p class="subtitle">Cascade gratuite · Pavo · Pollinations · Puter · Vivideo</p>
+</header>
+
+<div class="panel" style="box-shadow:inset 3px 0 0 var(--ok)">
+  <div class="engine-info">
+    <span class="ei-icon">✨</span>
+    <div><strong style="color:var(--rose-metal)">4 moteurs vidéo en cascade</strong> · <strong style="color:var(--rose)">Image : Pollinations</strong></div>
+  </div>
+  <div class="cascade-status" id="cascade-status">
+    <div>1. <span class="cs-ok">Pavo AI (Agnes 2.5 Flash)</span> — gratuit, 0 crédit</div>
+    <div>2. <span class="cs-warn">Pollinations Video</span> — ~5/jour, sans clé</div>
+    <div>3. <span class="cs-warn">Puter.js (PixVerse)</span> — gratuit côté code, crédits utilisateur</div>
+    <div>4. <span class="cs-warn">Vivideo</span> — "free forever", interface web</div>
+  </div>
+</div>
+
+<div class="section open" id="section-create">
+  <div class="section-header" data-toggle="section-create">
+    <span class="section-title">✦ Créer</span><span class="chevron">▼</span>
+  </div>
+  <div class="section-body"><div class="section-content">
+    <div class="mode-tabs" id="mode-tabs">
+      <div class="mode-tab selected" data-mode="image">🖼️ Image</div>
+      <div class="mode-tab" data-mode="video">🎬 Vidéo</div>
+      <div class="mode-tab" data-mode="both">✦ Les deux</div>
+    </div>
+    <textarea class="prompt-area" id="prompt-input" placeholder="Décrivez votre vision… une femme en robe rose métallisé, lumière dorée, élégance cinématographique"></textarea>
+    <div class="controls">
+      <div class="control"><label>Style</label>
+        <select id="style-select">
+          <option value="cinematic">Cinématographique</option>
+          <option value="photorealistic">Photoréaliste</option>
+          <option value="fashion">Mode / Luxe</option>
+          <option value="anime">Anime</option>
+        </select>
+      </div>
+      <div class="control"><label>Format</label>
+        <select id="format-select">
+          <option value="9:16">9:16 · Vertical</option>
+          <option value="16:9">16:9 · Horizontal</option>
+          <option value="1:1">1:1 · Carré</option>
+        </select>
+      </div>
+      <div class="control"><label>Durée vidéo</label>
+        <select id="duration-select">
+          <option value="5">5 secondes</option>
+          <option value="8">8 secondes</option>
+          <option value="10">10 secondes</option>
+        </select>
+      </div>
+      <div class="control"><label>Qualité image</label>
+        <select id="quality-select">
+          <option value="1K">1K</option>
+          <option value="2K" selected>2K</option>
+        </select>
+      </div>
+    </div>
+    <button type="button" class="btn-generate" id="generate-btn" disabled>✦ Créer avec DianaLuxe</button>
+  </div></div>
+</div>
+
+<div class="section open" id="section-tasks">
+  <div class="section-header" data-toggle="section-tasks">
+    <span class="section-title">💫 Créations en cours</span><span class="chevron">▼</span>
+  </div>
+  <div class="section-body"><div class="section-content">
+    <div class="task-list" id="task-list">
+      <div style="text-align:center;padding:1.5rem;color:var(--faint);font-size:.76rem;font-style:italic">Vos créations apparaîtront ici.</div>
+    </div>
+  </div></div>
+</div>
+
+<div class="section" id="section-history">
+  <div class="section-header" data-toggle="section-history">
+    <span class="section-title">📁 Galerie</span><span class="chevron">▼</span>
+  </div>
+  <div class="section-body"><div class="section-content">
+    <div class="history-grid" id="history-grid"></div>
+    <div class="history-empty" id="history-empty">Vos créations passées apparaîtront ici.</div>
+  </div></div>
+</div>
+
+<div class="status-bar" id="status-bar"><div class="spinner"></div><span id="status-text">Prêt</span></div>
+<div class="toast" id="toast"><span id="toast-text">Message</span></div>
+
+<script src="https://js.puter.com/v2/"></script>
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════════
+const POLLINATIONS_IMG = 'https://image.pollinations.ai/prompt/';
+const STYLES = {
+  cinematic:'cinematic photography, dramatic lighting, shallow depth of field, film grain',
+  photorealistic:'photorealistic, ultra detailed, natural lighting, 8k, sharp focus',
+  fashion:'high fashion editorial photography, studio lighting, luxury brand campaign',
+  anime:'anime style, japanese animation, vibrant colors, clean line art'
+};
+const DIMS = {'9:16':'768x1344','16:9':'1344x768','1:1':'1024x1024'};
+
+const state = { mode:'image', tasks:[], history:[], busy:false };
+
+// ══════════════════════════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════════════════════════
+function esc(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+
+let toastT=null;
+function toast(msg,type='success'){
+  const t=document.getElementById('toast'),x=document.getElementById('toast-text');
+  t.classList.remove('visible','success','error','warn');void t.offsetWidth;
+  x.textContent=msg;t.classList.add(type);t.classList.add('visible');
+  if(toastT)clearTimeout(toastT);
+  toastT=setTimeout(()=>t.classList.remove('visible'),3500);
+}
+function setStatus(text){
+  const b=document.getElementById('status-bar'),t=document.getElementById('status-text');
+  if(text){b.classList.add('visible');t.textContent=text}else b.classList.remove('visible');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// IMAGE — POLLINATIONS (100% gratuit)
+// ══════════════════════════════════════════════════════════════════
+async function generateImage(prompt,style,format){
+  const full = prompt + (STYLES[style]?', '+STYLES[style]:'');
+  const dim = DIMS[format] || '1024x1024';
+  const [w,h] = dim.split('x');
+  const url = POLLINATIONS_IMG + encodeURIComponent(full) +
+    `?width=${w}&height=${h}&nologo=true&seed=${Math.floor(Math.random()*999999)}`;
+  return new Promise((resolve,reject)=>{
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = ()=>resolve(url);
+    img.onerror = ()=>reject(new Error('Image Pollinations échouée'));
+    img.src = url;
+    setTimeout(()=>{if(!img.complete)reject(new Error('Timeout image'))},45000);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// VIDÉO — CASCADE DE 4 MOTEURS
+// ══════════════════════════════════════════════════════════════════
+async function generateVideoCascade(prompt, style, duration){
+  const full = prompt + (STYLES[style]?', '+STYLES[style]:'');
+  const errors = [];
+
+  // ── MOTEUR 1 : Pavo AI / Agnes Video 2.5 Flash (gratuit, 0 crédit) ──
+  // Note : Pavo est une interface web. L'appel direct nécessite l'API Agnes.
+  // On tente via l'endpoint public si disponible, sinon on passe au suivant.
+  try{
+    setStatus('Moteur 1/4 — Pavo AI (Agnes 2.5 Flash)…');
+    // Agnes API publique (gratuite, illimitée) — peut saturer
+    const res = await fetch('https://apihub.agnes-ai.com/v1/videos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model:'agnes-video-2.5-flash', prompt:full, mode:'text', seconds:String(duration), size:'720P' })
+    });
+    if(res.ok){
+      const d = await res.json();
+      const vid = d.video_id || d.id || d.task_id;
+      if(vid){
+        // Polling
+        for(let i=0; i<120; i++){
+          await sleep(3000);
+          const pr = await fetch(`https://apihub.agnes-ai.com/agnesapi?video_id=${vid}&model_name=agnes-video-2.5-flash`);
+          if(!pr.ok) continue;
+          const pd = await pr.json();
+          if(['completed','succeeded','done'].includes(pd.status)){
+            const u = pd.url || (pd.metadata && pd.metadata.url);
+            if(u) return u;
+          }
+          if(['failed','error'].includes(pd.status)) break;
+        }
+      }
+    }
+    errors.push('Pavo: saturé ou indisponible');
+  }catch(e){ errors.push('Pavo: ' + e.message.slice(0,50)); }
+
+  // ── MOTEUR 2 : Pollinations Video (gratuit, ~5/jour, sans clé) ──
+  try{
+    setStatus('Moteur 2/4 — Pollinations Video…');
+    // Pollinations propose un endpoint vidéo gratuit
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model:'video', prompt:full, duration:duration })
+    });
+    if(res.ok){
+      const d = await res.json();
+      if(d.url || d.video_url) return d.url || d.video_url;
+    }
+    errors.push('Pollinations: quota épuisé ou indisponible');
+  }catch(e){ errors.push('Pollinations: ' + e.message.slice(0,50)); }
+
+  // ── MOTEUR 3 : Puter.js (PixVerse V6, User-Pays) ──
+  try{
+    setStatus('Moteur 3/4 — Puter.js (PixVerse V6)…');
+    if(window.puter && window.puter.ai){
+      const videoEl = await puter.ai.txt2vid(full, { model:'pixverse/pixverse-v6' });
+      await new Promise((resolve,reject)=>{
+        if(videoEl.src && !videoEl.src.startsWith('blob:')) return resolve();
+        videoEl.onloadeddata = resolve;
+        videoEl.onerror = ()=>reject(new Error('Puter échec'));
+        setTimeout(()=>reject(new Error('Timeout Puter')), 300000);
+      });
+      if(videoEl.src) return videoEl.src;
+    }
+    errors.push('Puter: crédits utilisateur insuffisants ou non chargé');
+  }catch(e){ errors.push('Puter: ' + e.message.slice(0,50)); }
+
+  // ── MOTEUR 4 : Vivideo (interface web, pas d'API publique) ──
+  // Vivideo ne propose pas d'API REST documentée. On ne peut pas l'appeler
+  // directement depuis JavaScript. On génère un message clair.
+  errors.push('Vivideo: nécessite une action manuelle sur vivideo.ai');
+
+  // Tous les moteurs ont échoué
+  throw new Error(
+    'Tous les moteurs vidéo ont échoué.\n' +
+    'Détails : ' + errors.join(' · ') + '\n\n' +
+    '👉 Solutions manuelles gratuites :\n' +
+    '• Pavo AI (app.pavo-ai.work) : inscription gratuite, Agnes 2.5 Flash = 0 crédit\n' +
+    '• Vivideo.ai : "100% free forever", génération en 60s\n' +
+    '• Pollinations.ai : ~5 vidéos/jour gratuites'
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// UI
+// ══════════════════════════════════════════════════════════════════
+function updateBtn(){
+  const b = document.getElementById('generate-btn');
+  const hasPrompt = document.getElementById('prompt-input').value.trim().length > 3;
+  b.disabled = !hasPrompt || state.busy;
+  b.textContent = state.busy ? '⏳ Création…' : (hasPrompt ? '✦ Créer avec DianaLuxe' : '✍️ Décrivez votre vision');
+}
+
+function renderTasks(){
+  const l = document.getElementById('task-list');
+  if(!state.tasks.length){
+    l.innerHTML = '<div style="text-align:center;padding:1.5rem;color:var(--faint);font-size:.76rem;font-style:italic">Vos créations apparaîtront ici.</div>';
+    return;
+  }
+  l.innerHTML = state.tasks.map(t=>{
+    const cls = t.status==='done'?'done':t.status==='error'?'error':'processing';
+    let body = '';
+    if(t.result?.kind==='image') body = `<div class="task-result"><img src="${t.result.url}"></div>`;
+    if(t.result?.kind==='video') body = `<div class="task-result"><video src="${t.result.url}" controls playsinline></video></div>`;
+    const acts = t.result ? `<div class="task-actions"><a href="${t.result.url}" download="dianaluxe-${t.type}-${t.id}.${t.type==='image'?'jpg':'mp4'}" target="_blank">⬇ Télécharger</a><button data-del="${t.id}">✕</button></div>` : '';
+    const err = t.error ? `<div style="font-size:.66rem;color:var(--err);margin-top:.3rem;white-space:pre-wrap">${esc(t.error)}</div>` : '';
+    return `<div class="task-item ${cls}"><div class="task-header"><span class="task-type ${t.type}">${t.status==='done'?'✓':t.status==='error'?'✕':'✦'} ${t.type}</span><span class="task-status">${esc(t.progress||t.status)}</span></div><div class="task-prompt">${esc(t.prompt)}</div>${err}${body}${acts}</div>`;
+  }).join('');
+  l.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
+    state.tasks = state.tasks.filter(t=>t.id!==b.dataset.del); renderTasks();
+  }));
+}
+
+function addHistory(item){
+  state.history.unshift(item);
+  if(state.history.length>50) state.history = state.history.slice(0,50);
+  try{localStorage.setItem('diana_hist',JSON.stringify(state.history.slice(0,20)))}catch(e){}
+  renderHistory();
+}
+function renderHistory(){
+  const g = document.getElementById('history-grid'), e = document.getElementById('history-empty');
+  if(!state.history.length){g.innerHTML='';e.style.display='block';return}
+  e.style.display='none';
+  g.innerHTML = state.history.slice(0,24).map(h=>{
+    const m = h.type==='image' ? `<img src="${h.url}">` : `<video src="${h.url}" muted playsinline></video>`;
+    return `<a class="history-item" href="${h.url}" download="diana-${h.type}-${h.ts}.${h.type==='image'?'jpg':'mp4'}" target="_blank">${m}<span class="hist-type">${h.type}</span></a>`;
+  }).join('');
+}
+function loadHistory(){try{const r=localStorage.getItem('diana_hist');if(r)state.history=JSON.parse(r)}catch(e){}renderHistory()}
+
+// ══════════════════════════════════════════════════════════════════
+// PIPELINE
+// ══════════════════════════════════════════════════════════════════
+async function run(){
+  if(state.busy) return;
+  const prompt = document.getElementById('prompt-input').value.trim();
+  if(!prompt) return toast('Décrivez votre vision','warn');
+  
+  state.busy = true; updateBtn(); setStatus('Création en cours…');
+  const mode = state.mode, style = document.getElementById('style-select').value,
+        format = document.getElementById('format-select').value,
+        duration = parseInt(document.getElementById('duration-select').value,10);
+
+  if(mode==='image' || mode==='both'){
+    const t = {id:uid(),type:'image',status:'processing',progress:'Génération…',prompt,result:null,error:null};
+    state.tasks.unshift(t); renderTasks();
+    try{
+      setStatus('Image — Pollinations…');
+      const url = await generateImage(prompt,style,format);
+      t.status='done'; t.result={url,kind:'image'}; t.progress='Terminé';
+      addHistory({type:'image',url,prompt,ts:Date.now()});
+    }catch(e){t.status='error';t.error=e.message}
+  }
+
+  if(mode==='video' || mode==='both'){
+    const t = {id:uid(),type:'video',status:'processing',progress:'Cascade…',prompt,result:null,error:null};
+    state.tasks.unshift(t); renderTasks();
+    try{
+      const url = await generateVideoCascade(prompt,style,duration);
+      t.status='done'; t.result={url,kind:'video'}; t.progress='Terminé';
+      addHistory({type:'video',url,prompt,ts:Date.now()});
+    }catch(e){t.status='error';t.error=e.message}
+  }
+
+  state.busy = false; updateBtn(); renderTasks(); setStatus(null);
+  const ok = state.tasks.filter(t=>t.status==='done').length;
+  toast(ok>0 ? '✦ Création prête !' : 'Tous les moteurs ont échoué — voir détails', ok>0?'success':'error');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════
+(function init(){
+  document.querySelectorAll('[data-toggle]').forEach(h=>h.addEventListener('click',()=>document.getElementById(h.dataset.toggle).classList.toggle('open')));
+  document.querySelectorAll('.mode-tab').forEach(tab=>tab.addEventListener('click',()=>{
+    document.querySelectorAll('.mode-tab').forEach(t=>t.classList.remove('selected'));
+    tab.classList.add('selected'); state.mode = tab.dataset.mode;
+  }));
+  document.getElementById('prompt-input').addEventListener('input', updateBtn);
+  document.getElementById('generate-btn').addEventListener('click', run);
+  loadHistory(); renderTasks(); updateBtn();
+
+  setTimeout(()=>{
+    if(window.puter && window.puter.ai) toast('Puter.js chargé — moteur 3 disponible','success');
+  }, 2000);
+})();
+</script>
+</body>
+</html>

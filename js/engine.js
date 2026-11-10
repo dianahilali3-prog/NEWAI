@@ -16,6 +16,19 @@ const clamp01 = t => Math.max(0, Math.min(1, t));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const FPS = 30;
 
+// Limite de tâches simultanées (partagée par toutes les générations : lot, agent, écrans)
+function semaphore(n) {
+  let active = 0; const waiting = [];
+  const release = () => { active--; const next = waiting.shift(); if (next) next(); };
+  return async fn => {
+    if (active >= n) await new Promise(r => waiting.push(r));
+    active++;
+    try { return await fn(); } finally { release(); }
+  };
+}
+const agnesImageSlot = semaphore(5);   // mesuré : 4-5 images Agnes en parallèle sans erreur
+const recordSlot = semaphore(3);       // montages enregistrés en même temps (temps réel, CPU)
+
 async function fetchWithTimeout(url, ms, opts = {}) {
   const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), ms);
   try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
@@ -113,7 +126,8 @@ async function agnesChat(messages) {
 }
 
 // Image (texte → image, ou image → image si `image` est fourni). Réponse en base64 : pas de souci de CORS.
-async function agnesImage({ prompt, size, image }) {
+async function agnesImage(args) { return agnesImageSlot(() => agnesImageRaw(args)); }
+async function agnesImageRaw({ prompt, size, image }) {
   const models = image ? ['agnes-image-2.1-flash', 'agnes-image-2.5-flash'] : ['agnes-image-2.5-flash', 'agnes-image-2.1-flash', 'agnes-image-2.0-flash'];
   let lastErr;
   for (const model of models) {
@@ -157,9 +171,16 @@ async function pollinationsImage(prompt, w, h, seed, onWait) {
 }
 
 /* Image : Agnes d'abord (≈10 s, haute qualité), Pollinations en secours */
-async function createImage({ prompt, style, format = '9:16', hd = false, image = null, seed, onStatus = () => {} }) {
+function characterPrompt(prompt, character, withRef) {
+  if (!character) return prompt;
+  const who = `${character.name}${character.description ? ' (' + character.description + ')' : ''}`;
+  return withRef ? `New photo of the same person as in the reference image (${who}): keep exactly the same face and identity, but create a completely new scene, pose, outfit and framing as described, showing the full setting. Scene: ${prompt}` : `${who}. ${prompt}`;
+}
+async function createImage({ prompt, style, format = '9:16', hd = false, image = null, character = null, seed, onStatus = () => {} }) {
   const f = FORMATS[format] || FORMATS['9:16'];
-  const full = withStyle(prompt, style);
+  const ref = image || (character && character.photos && character.photos[0]) || null;
+  if (!image && ref && hasAgnes()) image = ref;
+  const full = withStyle(characterPrompt(prompt, character, !!(image && character)), style);
   if (hasAgnes()) {
     try {
       onStatus(image ? 'Agnes transforme ton image…' : 'Agnes crée ton image…');
@@ -470,7 +491,8 @@ async function renderVideo({images, duration, transition, motion, caption, cinem
    ════════════════════════════════════════════════════════════════ */
 async function createVideo(o, { onStatus, onPreview, onCanvas }) {
   const f = FORMATS[o.format] || FORMATS['9:16'];
-  const full = withStyle(o.prompt, o.style);
+  const ch = o.character || null;
+  const full = withStyle(characterPrompt(o.prompt, ch, false), o.style);
   const notes = [];
 
   // 1) Vraie vidéo IA (mouvements générés par l'IA)
@@ -478,7 +500,7 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
     const patience = o.engine === 'ai' ? 40 : (serverBase() ? 30 : +Settings.get('patience') || 1);
     try {
       onStatus('Envoi à l\'IA vidéo…', .02);
-      const r = await aiVideo({ prompt: full, duration: o.duration, format: o.format, image: o.image,
+      const r = await aiVideo({ prompt: full, duration: o.duration, format: o.format, image: o.image || (ch && ch.photos && ch.photos[0]) || null,
         deadlineMs: Date.now() + patience * 60000, onStatus: (m, p) => onStatus(m, p == null ? null : .05 + .93 * p) });
       return { ...r, notes };
     } catch (e) {
@@ -510,7 +532,7 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
     try {
       // Avec une image de départ (Image → Vidéo), Agnes crée d'autres plans de la même scène
       const r = await createImage({ prompt: first && fast ? `same person, same outfit and same setting as the reference image. ${scenes[i]}` : scenes[i],
-        style: o.style, format: o.format, image: first && fast ? first : null, seed: seed + i,
+        style: o.style, format: o.format, image: first && fast ? first : null, character: first ? null : ch, seed: seed + i,
         onStatus: m => onStatus(fast ? `Création des images en parallèle… (${done}/${scenes.length})` : `${label} — ${m}`) });
       results[i] = r.blob;
       if (!first && done === 0) onPreview && onPreview(r.blob);
@@ -534,10 +556,11 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
   const images = []; bitmaps.forEach(img => { for (let k = 0; k < shotsPer; k++) images.push({ img, shot: k }); });
 
   onStatus('Montage et enregistrement…', .65);
-  const out = await renderVideo({ images, duration: o.duration, transition: o.transition || 'mix', motion: o.motion || 1, caption: o.caption || '',
+  onStatus('En attente d\'un créneau d\'enregistrement…', .64);
+  const out = await recordSlot(() => renderVideo({ images, duration: o.duration, transition: o.transition || 'mix', motion: o.motion || 1, caption: o.caption || '',
     cinema: o.cinema !== false, audio: o.music || 'ambient', W: f.vw, H: f.vh,
     onFrame: c => onCanvas && onCanvas(c),
-    onProgress: p => onStatus(`Enregistrement ${Math.round(p * 100)} %`, .65 + .35 * p) });
+    onProgress: p => onStatus(`Enregistrement ${Math.round(p * 100)} %`, .65 + .35 * p) }));
   bitmaps.forEach(b => b.close && b.close());
   return { blob: out.blob, ext: out.ext, url: null, engine: 'Montage animé' + (fast ? ' · images Agnes' : ' · images Pollinations'), notes };
 }
@@ -545,33 +568,134 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
 /* ════════════════════════════════════════════════════════════════
    BIBLIOTHÈQUE — IndexedDB (sur l'appareil)
    ════════════════════════════════════════════════════════════════ */
-const DB = {
-  db: null,
-  async open() {
-    if (this.db) return this.db;
-    this.db = await new Promise((res, rej) => {
-      const r = indexedDB.open('eclat-ai', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('items', { keyPath: 'id' });
-      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-    });
-    return this.db;
-  },
-  async tx(mode, fn) {
-    const db = await this.open();
+let _db = null;
+async function openDB() {
+  if (_db) return _db;
+  _db = await new Promise((res, rej) => {
+    const r = indexedDB.open('eclat-ai', 2);
+    r.onupgradeneeded = () => {
+      if (!r.result.objectStoreNames.contains('items')) r.result.createObjectStore('items', { keyPath: 'id' });
+      if (!r.result.objectStoreNames.contains('characters')) r.result.createObjectStore('characters', { keyPath: 'id' });
+    };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  return _db;
+}
+function makeStore(name) {
+  const tx = async (mode, fn) => {
+    const db = await openDB();
     return new Promise((res, rej) => {
-      const t = db.transaction('items', mode), s = t.objectStore('items'); const req = fn(s);
+      const t = db.transaction(name, mode), st = t.objectStore(name); const req = fn(st);
       t.oncomplete = () => res(req && req.result); t.onerror = () => rej(t.error);
     });
-  },
-  put(item) { return this.tx('readwrite', s => s.put(item)); },
-  get(id) { return this.tx('readonly', s => s.get(id)); },
-  del(id) { return this.tx('readwrite', s => s.delete(id)); },
-  async all() { return ((await this.tx('readonly', s => s.getAll())) || []).sort((a, b) => b.ts - a.ts); }
-};
+  };
+  return {
+    put: v => tx('readwrite', st => st.put(v)), get: id => tx('readonly', st => st.get(id)),
+    del: id => tx('readwrite', st => st.delete(id)),
+    async all() { return ((await tx('readonly', st => st.getAll())) || []).sort((a, b) => b.ts - a.ts); }
+  };
+}
+const DB = makeStore('items');          // créations
+const Chars = makeStore('characters');  // personnages de référence
 const urlCache = new Map();
 function itemUrl(it) {
   if (!it) return '';
   if (!it.blob) return it.url || '';
   if (!urlCache.has(it.id)) urlCache.set(it.id, URL.createObjectURL(it.blob));
   return urlCache.get(it.id);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   WEB — outils de l'agent (gratuits, sans clé, testés depuis le navigateur)
+   - Recherche : Yahoo lu via Jina Reader + Wikipédia
+   - Lecture d'une page : Jina Reader (r.jina.ai)
+   - Photos libres : Wikimedia Commons
+   ════════════════════════════════════════════════════════════════ */
+const JINA = 'https://r.jina.ai/';
+// En-tête demandé par Wikimedia aux applications web (aucune donnée personnelle)
+const WIKI_HDR = { 'Api-User-Agent': 'EclatAi/1.0 (https://dianahilali3-prog.github.io/NEWAI/)' };
+async function wikiJSON(u) {
+  const r = await fetchWithTimeout(u, 20000, { headers: WIKI_HDR });
+  if (!r.ok) throw new Error(r.status === 429 ? 'Wikimedia limite les requêtes, réessaie dans un instant' : 'HTTP ' + r.status);
+  return r.json();
+}
+const clip = (t, n) => (t || '').length > n ? t.slice(0, n) + '…' : (t || '');
+
+async function readPage(url) {
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  const r = await fetchWithTimeout(JINA + url, 45000, { headers: { 'X-Retain-Images': 'none' } });
+  if (!r.ok) throw new Error('page illisible (HTTP ' + r.status + ')');
+  const md = await r.text();
+  return clip(md.replace(/\n{3,}/g, '\n\n'), 9000);
+}
+
+async function wikiSearch(query, lang = 'fr') {
+  const u = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=4&format=json&origin=*`;
+  const d = await wikiJSON(u);
+  return (d.query?.search || []).map(x => ({ title: x.title, url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(x.title.replace(/ /g, '_'))}`,
+    snippet: x.snippet.replace(/<[^>]+>/g, '') }));
+}
+
+async function webSearch(query) {
+  // Yahoo ne gère pas bien guillemets et opérateurs : requête simplifiée
+  query = String(query).replace(/["“”«»]/g, ' ').replace(/\b(site|inurl|intitle):\S+/gi, ' ').replace(/\s+/g, ' ').trim();
+  const out = { query, results: [], wikipedia: [] };
+  const [web, wiki] = await Promise.allSettled([
+    (async () => {
+      let md = '';
+      for (let a = 0; a < 2 && !/###/.test(md); a++) {
+        const r = await fetchWithTimeout(JINA + 'https://search.yahoo.com/search?p=' + encodeURIComponent(query).replace(/%20/g, '+'), 45000);
+        if (!r.ok) { if (a) throw new Error('HTTP ' + r.status); continue; }
+        md = await r.text();
+      }
+      // Résultats Yahoo : "[… Site https://exemple.com › chemin ### Titre ...](lien)"
+      const seen = new Set();
+      for (const line of md.split('\n')) {
+        const m = line.match(/\]\((https?:\/\/[^)\s]+)\)/g);
+        const t = line.match(/###\s*([^\]\n]+)/);
+        if (!t || !m) continue;
+        let link = m[m.length - 1].slice(2, -1);
+        const ru = link.match(/RU=([^/]+)/); if (ru) { try { link = decodeURIComponent(ru[1]); } catch (e) {} }
+        if (/yahoo\.com|yimg\.com|bing\.com/.test(link) || seen.has(link)) continue;
+        seen.add(link);
+        out.results.push({ title: clip(t[1].trim(), 140), url: link, snippet: clip(line.replace(/\[|\]|\(.*?\)|#+|!\S+/g, ' ').replace(/\s+/g, ' ').trim(), 300) });
+        if (out.results.length >= 8) break;
+      }
+      if (!out.results.length) out.raw = clip(md, 4000);
+    })(),
+    wikiSearch(query).then(w => { out.wikipedia = w; })
+  ]);
+  if (web.status === 'rejected' && wiki.status === 'rejected') throw new Error('recherche web indisponible');
+  return out;
+}
+
+async function searchImages(query, n = 8) {
+  const u = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(query + ' filetype:bitmap')}&gsrlimit=${n * 2}&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=720&format=json&origin=*`;
+  const d = await wikiJSON(u);
+  return Object.values(d.query?.pages || {}).sort((a, b) => a.index - b.index)
+    .map(p => { const ii = (p.imageinfo || [])[0] || {}; const md = ii.extmetadata || {};
+      return { title: p.title.replace(/^File:|\.\w+$/g, ''), thumb: ii.thumburl, url: ii.descriptionurl, full: ii.url,
+        license: md.LicenseShortName?.value || '', author: (md.Artist?.value || '').replace(/<[^>]+>/g, '').trim() }; })
+    .filter(x => x.thumb && /\.(jpe?g|png|webp)/i.test(x.thumb)).slice(0, n);
+}
+
+// Télécharge une image du web (pour l'utiliser comme référence / personnage)
+async function fetchImageBlob(url) {
+  const r = await fetchWithTimeout(url, 30000);
+  if (!r.ok) throw new Error('image inaccessible');
+  const b = await r.blob(); if (!b.type.startsWith('image/')) throw new Error('ce n\'est pas une image');
+  return b;
+}
+
+// Chat avec outils (tool calling OpenAI-compatible, vérifié sur Agnes)
+async function agnesChatTools(messages, tools) {
+  let lastErr;
+  for (const model of ['agnes-3.0-flash', 'agnes-2.5-flash']) {
+    try {
+      const d = await agnesFetch('/v1/chat/completions', { model, messages, tools, tool_choice: 'auto', max_tokens: 900, temperature: .7 }, { timeout: 90000 });
+      const m = d && d.choices && d.choices[0] && d.choices[0].message;
+      if (m) return m;
+    } catch (e) { lastErr = e; if (e.status === 401) throw e; }
+  }
+  throw lastErr || new Error('réponse vide');
 }

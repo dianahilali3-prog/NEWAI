@@ -55,6 +55,13 @@
     <symbol id="i-sliders" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M4 7h16M9 7V4h6v3m-8 0l1 13h8l1-13"/></symbol>
     <symbol id="i-redo" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.4 3.4 0 0 1 0 6.4M18 14.8c2 .7 3.2 2.4 3.6 5.2"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path fill="none" stroke="currentColor" stroke-width="1.6" d="M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></symbol>
   </defs>
 </svg>
 
@@ -87,6 +94,10 @@
       <button class="card action" data-go="create-video"><svg><use href="#i-video"/></svg><b>Générer une vidéo</b><small>Donne vie à tes idées en mouvement</small></button>
       <button class="card action" data-go="agent"><svg><use href="#i-chat"/></svg><b>Agent IA</b><small>Pose tes questions, obtiens des idées, crée avec moi</small></button>
     </div>
+    <div class="actions2">
+      <button class="card action-row" data-go="studio"><svg><use href="#i-grid"/></svg><span><b>Studio en lot</b><small>Jusqu'à 30 images et vidéos, chacune son prompt, en même temps</small></span></button>
+      <button class="card action-row" data-go="characters"><svg><use href="#i-people"/></svg><span><b>Personnages</b><small>Tes références pour garder le même visage</small></span></button>
+    </div>
     <div class="jobs-mini" id="home-jobs"></div>
     <div class="row-title"><h4>Créations récentes</h4><button class="link" data-go="library">Voir tout</button></div>
     <div class="hscroll" id="recent"></div>
@@ -101,7 +112,9 @@
     </div>
     <div class="chat" id="chat"></div>
     <form class="composer hidden" id="composer" autocomplete="off">
-      <input id="chat-input" placeholder="Écris ton message…" maxlength="1500">
+      <button type="button" class="attach" id="chat-attach" aria-label="Joindre une photo"><svg><use href="#i-clip"/></svg></button>
+      <img id="chat-attach-pv" class="hidden" alt="">
+      <input id="chat-input" placeholder="Écris, demande une recherche web, une création…" maxlength="3000">
       <button type="submit" aria-label="Envoyer"><svg><use href="#i-send"/></svg></button>
     </form>
   </section>
@@ -125,8 +138,10 @@
     <div class="card opts">
       <button class="opt" data-pick="img-format"><svg><use href="#i-format"/></svg><span>Format</span><em data-show="img-format"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-pick="img-quality"><svg><use href="#i-hd"/></svg><span>Qualité</span><em data-show="img-quality"></em><svg class="chev"><use href="#i-chev"/></svg></button>
+      <button class="opt" data-pick="img-char"><svg><use href="#i-people"/></svg><span>Personnage</span><em data-show="img-char"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-pick="img-count"><svg><use href="#i-layers"/></svg><span>Nombre d'images</span><em data-show="img-count"></em><svg class="chev"><use href="#i-chev"/></svg></button>
     </div>
+    <button class="link" data-go="studio" style="display:block;margin:12px auto 0">Un prompt différent pour chaque image ? → Studio en lot</button>
     <button class="btn btn-pink btn-lg" id="img-go">Générer l'image <svg width="16" height="16"><use href="#i-sparkle"/></svg></button>
   </section>
 
@@ -149,6 +164,8 @@
     <div class="styles" data-styles="vid"></div>
     <button class="collapse-h" id="vid-adv-h"><span style="display:flex;gap:6px;align-items:center"><svg style="color:var(--pink);transform:none"><use href="#i-sliders"/></svg>Options avancées</span><svg><use href="#i-chev"/></svg></button>
     <div class="card opts hidden" id="vid-adv">
+      <button class="opt" data-pick="vid-char"><svg><use href="#i-people"/></svg><span>Personnage</span><em data-show="vid-char"></em><svg class="chev"><use href="#i-chev"/></svg></button>
+      <button class="opt" data-pick="vid-count"><svg><use href="#i-layers"/></svg><span>Nombre de vidéos</span><em data-show="vid-count"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-pick="vid-engine"><svg><use href="#i-engine"/></svg><span>Moteur</span><em data-show="vid-engine"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-pick="vid-format"><svg><use href="#i-format"/></svg><span>Format</span><em data-show="vid-format"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-pick="vid-music"><svg><use href="#i-music"/></svg><span>Musique</span><em data-show="vid-music"></em><svg class="chev"><use href="#i-chev"/></svg></button>
@@ -213,9 +230,11 @@
     </div>
     <div class="card menu">
       <button class="opt" id="sub-btn"><svg><use href="#i-sub"/></svg><span>Abonnement</span><span class="pill">Gratuit</span><svg class="chev"><use href="#i-chev"/></svg></button>
+      <button class="opt" data-go="characters"><svg><use href="#i-people"/></svg><span>Mes personnages</span><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-go="library"><svg><use href="#i-history"/></svg><span>Historique des créations</span><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-go="settings"><svg><use href="#i-settings"/></svg><span>Paramètres de l'IA</span><em id="ai-state"></em><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-go="prefs"><svg><use href="#i-sliders"/></svg><span>Préférences</span><svg class="chev"><use href="#i-chev"/></svg></button>
+      <button class="opt" data-go="opensource"><svg><use href="#i-code"/></svg><span>Open source &amp; boosters</span><svg class="chev"><use href="#i-chev"/></svg></button>
       <button class="opt" data-go="help"><svg><use href="#i-help"/></svg><span>Aide &amp; support</span><svg class="chev"><use href="#i-chev"/></svg></button>
     </div>
     <button class="btn btn-ghost btn-lg" id="logout">Se déconnecter</button>
@@ -275,11 +294,89 @@
       <p>La file d'attente vidéo gratuite d'Agnes est souvent pleine. L'app réessaie toute seule toutes les 30 s. Augmente la patience dans Paramètres de l'IA, ou utilise le serveur GPU gratuit (Colab/Kaggle).</p>
       <h5>Installer l'application</h5>
       <p>Sur iPhone : ouvre le site dans Safari → bouton Partager → « Sur l'écran d'accueil ». Sur Android : menu de Chrome → « Installer l'application ». Éclat Ai s'ouvre alors en plein écran, comme une vraie app.</p>
+      <h5>Studio en lot</h5>
+      <p>Jusqu'à 30 créations, chacune avec son prompt. Une idée par ligne, « vidéo: » devant pour une vidéo, « @Prénom » pour un personnage. Tout se génère en même temps.</p>
+      <h5>Personnages</h5>
+      <p>Ajoute une photo (import, appareil photo, bibliothèque, web ou IA) et une description : l'IA garde le même visage dans tes images et vidéos.</p>
+      <h5>Agent IA connecté au web</h5>
+      <p>Demande-lui de chercher des infos ou des photos sur internet, de lire une page, de créer plusieurs images ou vidéos d'un coup, ou d'utiliser ta photo (trombone 📎).</p>
       <h5>Où sont mes créations ?</h5>
       <p>Dans la Bibliothèque, enregistrées sur cet appareil uniquement. Pense à les télécharger.</p>
       <h5>Pendant une vidéo</h5>
       <p>Laisse l'application ouverte : le montage s'enregistre en temps réel.</p>
     </div>
+  </section>
+
+  <!-- ═══ Studio en lot ═══ -->
+  <section class="screen" data-screen="studio">
+    <div class="topbar">
+      <button class="icon-btn" data-back aria-label="Retour"><svg><use href="#i-back"/></svg></button>
+      <h2>Studio en lot</h2><span class="icon-btn" style="color:var(--pink)"><svg><use href="#i-grid"/></svg></span>
+    </div>
+    <p class="help" style="margin:-4px 0 12px">Jusqu'à 30 créations, chacune avec son propre prompt. Images et vidéos se génèrent en même temps.</p>
+    <div class="card box" style="margin-top:0">
+      <h5>Ajouter vite</h5>
+      <div class="prompt"><textarea id="st-paste" style="min-height:84px" placeholder="Une idée par ligne. Commence par « vidéo: » pour une vidéo. Ajoute @Prénom pour un personnage.&#10;Ex :&#10;une reine sur un balcon à Paris @Léa&#10;vidéo: une voiture de luxe sous la pluie"></textarea></div>
+      <div class="row2"><button class="btn btn-ghost btn-sm" id="st-add-lines">＋ Ajouter les lignes</button><button class="btn btn-ghost btn-sm" id="st-ideas">✨ Idées par l'IA</button></div>
+    </div>
+    <div class="row-title" style="margin-top:16px"><h4>Créations <span id="st-count" style="color:var(--pink)"></span></h4><button class="link" id="st-clear">Tout effacer</button></div>
+    <div id="st-rows"></div>
+    <button class="btn btn-ghost btn-lg" id="st-add" style="margin-top:4px">＋ Ajouter une création</button>
+    <div class="card opts" style="margin-top:14px">
+      <button class="opt" data-pick="st-format"><svg><use href="#i-format"/></svg><span>Format pour tout le lot</span><em data-show="st-format"></em><svg class="chev"><use href="#i-chev"/></svg></button>
+    </div>
+    <button class="btn btn-pink btn-lg" id="st-go">Tout générer en même temps <svg width="16" height="16"><use href="#i-sparkle"/></svg></button>
+  </section>
+
+  <!-- ═══ Suivi d'un lot ═══ -->
+  <section class="screen" data-screen="batch">
+    <div class="topbar">
+      <button class="icon-btn" data-back aria-label="Retour"><svg><use href="#i-back"/></svg></button>
+      <h2>Génération en lot</h2><span style="width:38px"></span>
+    </div>
+    <div class="card box" style="margin-top:0"><h5 id="bt-summary">…</h5><div class="progress"><div id="bt-bar"></div></div></div>
+    <div class="batch-list" id="bt-list"></div>
+    <button class="btn btn-ghost btn-lg" data-go="library">Voir la bibliothèque</button>
+  </section>
+
+  <!-- ═══ Personnages ═══ -->
+  <section class="screen" data-screen="characters">
+    <div class="topbar">
+      <button class="icon-btn" data-back aria-label="Retour"><svg><use href="#i-back"/></svg></button>
+      <h2>Personnages</h2><span style="width:38px"></span>
+    </div>
+    <p class="help" style="margin:-4px 0 14px">Enregistre tes personnages de référence (photo + description). Choisis-les ensuite dans une image, une vidéo, le Studio ou l'Agent IA (« @Prénom ») pour garder le même visage.</p>
+    <div class="grid" id="ch-grid"></div>
+    <button class="btn btn-pink btn-lg" data-go="character">＋ Nouveau personnage</button>
+  </section>
+
+  <!-- ═══ Éditeur de personnage ═══ -->
+  <section class="screen" data-screen="character">
+    <div class="topbar">
+      <button class="icon-btn" data-back aria-label="Retour"><svg><use href="#i-back"/></svg></button>
+      <h2 id="ce-title">Nouveau personnage</h2><span style="width:38px"></span>
+    </div>
+    <div class="label">Photos de référence</div>
+    <div class="photos" id="ce-photos"></div>
+    <p class="help">La 1re photo sert de référence principale. Utilise des photos de toi, de personnages créés par l'IA, ou de personnes qui sont d'accord.</p>
+    <div class="field" style="margin-top:12px"><label>Prénom / nom</label><input id="ce-name" maxlength="40" placeholder="Ex : Léa"></div>
+    <div class="field"><label>Description (apparence, style)</label>
+      <div class="prompt"><textarea id="ce-desc" style="min-height:80px" placeholder="Ex : femme de 25 ans, longs cheveux bruns ondulés, yeux verts, style glamour"></textarea>
+      <button class="magic" id="ce-auto" title="Décrire automatiquement depuis la photo"><svg><use href="#i-wand"/></svg></button></div></div>
+    <button class="btn btn-pink btn-lg" id="ce-save">Enregistrer</button>
+    <div class="row2 hidden" id="ce-actions" style="margin-top:10px">
+      <button class="btn btn-ghost btn-sm" id="ce-img">Créer une image</button><button class="btn btn-ghost btn-sm" id="ce-vid">Créer une vidéo</button>
+    </div>
+    <button class="btn btn-ghost btn-lg hidden" id="ce-del" style="color:var(--err)">Supprimer ce personnage</button>
+  </section>
+
+  <!-- ═══ Open source ═══ -->
+  <section class="screen" data-screen="opensource">
+    <div class="topbar">
+      <button class="icon-btn" data-back aria-label="Retour"><svg><use href="#i-back"/></svg></button>
+      <h2>Open source &amp; boosters</h2><span style="width:38px"></span>
+    </div>
+    <div id="os-list"></div>
   </section>
 
   <!-- ═══ Navigation ═══ -->

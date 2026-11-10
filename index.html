@@ -140,6 +140,12 @@ h1{font-family:var(--serif);font-size:2.1rem;font-weight:300;
     <p class="hint">Astuce : écrivez une scène par ligne pour contrôler vous-même chaque plan de la vidéo.</p>
 
     <div class="controls">
+      <div class="control video-only" style="grid-column:1/-1"><label>Moteur vidéo</label>
+        <select id="engine-select">
+          <option value="auto">Auto : IA vidéo (serveur / Agnes) → sinon montage local</option>
+          <option value="ai">IA vidéo uniquement (vrais mouvements)</option>
+          <option value="local">Montage local uniquement (instantané, illimité)</option>
+        </select></div>
       <div class="control"><label>Style</label>
         <select id="style-select">
           <option value="cinematic">Cinématographique</option>
@@ -209,8 +215,34 @@ h1{font-family:var(--serif);font-size:2.1rem;font-weight:300;
       <label class="chk video-only"><input type="checkbox" id="opt-script" checked> Scénario auto par IA</label>
       <label class="chk video-only"><input type="checkbox" id="opt-cinema" checked> Effet cinéma (grain, vignette)</label>
       <label class="chk"><input type="checkbox" id="opt-enhance"> Améliorer le prompt</label>
+      <label class="chk video-only"><input type="checkbox" id="opt-i2v"> IA : animer d'abord une image Pollinations</label>
     </div>
     <button type="button" class="btn-generate" id="generate-btn" disabled>✦ Créer</button>
+  </div></div>
+</div>
+
+<div class="section" id="section-server">
+  <div class="section-header" data-toggle="section-server"><span class="section-title">⚙️ Serveur IA vidéo <span id="server-badge" style="margin-left:.4rem;font-family:var(--mono);letter-spacing:0;text-transform:none"></span></span><span class="chevron">▼</span></div>
+  <div class="section-body"><div class="section-content">
+    <p class="hint" style="margin:0 0 .7rem">
+      Pour de <strong style="color:var(--rose)">vraies vidéos IA</strong> (personnages qui bougent), connectez un serveur DianaLuxe :
+      ouvrez <code>notebooks/DianaLuxe_GPU.ipynb</code> dans Google Colab ou Kaggle (GPU gratuit), exécutez-le, puis collez ici l'adresse et le jeton affichés.
+      Le serveur utilise Agnes AI (avec gestion de la saturation) puis le modèle open-source LTX-Video sur le GPU.
+    </p>
+    <div class="controls" style="margin-top:0">
+      <div class="control" style="grid-column:1/-1"><label>Adresse du serveur</label>
+        <input class="text-input" id="server-url" placeholder="https://xxxx.trycloudflare.com" autocomplete="off"></div>
+      <div class="control"><label>Jeton du serveur</label>
+        <input class="text-input" id="server-token" type="password" placeholder="(si demandé)" autocomplete="off"></div>
+      <div class="control"><label>Clé Agnes directe (sans serveur)</label>
+        <input class="text-input" id="agnes-key" type="password" placeholder="optionnel" autocomplete="off"></div>
+    </div>
+    <p class="hint">La clé Agnes directe reste dans ce navigateur. Elle est utilisée seulement si aucun serveur n'est indiqué ; le navigateur peut toutefois être bloqué par Agnes (CORS) — le serveur est la méthode fiable.</p>
+    <div class="task-actions" style="margin-top:.7rem">
+      <button class="btn-small" id="server-test">🔌 Tester la connexion</button>
+      <button class="btn-small" id="server-save">💾 Enregistrer</button>
+    </div>
+    <div class="hint" id="server-info" style="font-family:var(--mono);margin-top:.5rem"></div>
   </div></div>
 </div>
 
@@ -533,6 +565,119 @@ async function renderVideo({images, duration, transition, motion, caption, cinem
 }
 
 // ════════════════════════════════════════════════════════════════
+// IA VIDÉO — serveur DianaLuxe (Agnes + LTX-Video) ou Agnes direct
+// Même protocole qu'Agnes : POST /v1/videos puis GET /agnesapi?video_id=
+// ════════════════════════════════════════════════════════════════
+const AGNES_DIRECT = 'https://apihub.agnes-ai.com';
+const RETRY_CODES = [408,409,429,500,502,503,504,520,522,524];
+
+function serverBase(){
+  let u = $('server-url').value.trim().replace(/\/+$/,'');
+  if(u && !/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u;
+}
+const aiConfigured = () => !!(serverBase() || $('agnes-key').value.trim());
+
+function findVideoUrl(d){
+  if(typeof d === 'string') return /^https?:\/\//.test(d) ? d : null;
+  if(d && typeof d === 'object'){
+    for(const k of ['url','video_url','videoUrl','output','result','download_url','file_url'])
+      if(typeof d[k] === 'string' && /^https?:\/\//.test(d[k])) return d[k];
+    for(const v of Object.values(d)){ const u = findVideoUrl(v); if(u) return u; }
+  }
+  return null;
+}
+const blobToDataURL = b => new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(b)});
+
+async function aiVideo(prompt, o, onStatus, imageBlob){
+  const srv = serverBase(), token = $('server-token').value.trim(), key = $('agnes-key').value.trim();
+  if(!srv && !key) throw new Error('aucun serveur IA ni clé Agnes (section ⚙️ Serveur IA vidéo)');
+  const f = FORMATS[o.format], secs = Math.min(o.duration, 10);
+  const body = { prompt, width:f.vw, height:f.vh, num_frames: secs*24+1, frame_rate:24, seed: Math.floor(Math.random()*2**31) };
+  const headers = {'Content-Type':'application/json'};
+  let base;
+  if(srv){
+    base = srv;
+    if(token) headers.Authorization = 'Bearer ' + token;
+    if(imageBlob) body.image = await blobToDataURL(imageBlob);
+  }else{
+    base = AGNES_DIRECT; headers.Authorization = 'Bearer ' + key; body.model = 'agnes-video-v2.0';
+    body.width = Math.floor(f.vw/32)*32; body.height = Math.floor(f.vh/32)*32;
+  }
+
+  // 1) Création (attente automatique si saturé)
+  let vid = null, wait = srv ? 10 : 65, netFails = 0;
+  for(let attempt=1; attempt<=8 && !vid; attempt++){
+    onStatus(`IA : envoi de la demande (essai ${attempt})…`, null);
+    let res;
+    try{ res = await fetchWithTimeout(base + '/v1/videos', 60000, {method:'POST', headers, body:JSON.stringify(body)}); }
+    catch(e){
+      if(!srv) throw new Error('Agnes injoignable depuis le navigateur (CORS/réseau) — utilisez le serveur DianaLuxe');
+      if(++netFails >= 2) throw new Error('serveur injoignable (le notebook est-il ouvert ?)');
+      res = null;
+    }
+    if(res && res.ok){ const d = await res.json(); vid = d.video_id || d.id || (d.data||{}).video_id; if(!vid) throw new Error('réponse sans video_id'); break; }
+    if(res && [401,402,403].includes(res.status)) throw new Error(res.status===401 ? 'jeton ou clé refusé (401)' : `accès refusé / quota épuisé (${res.status})`);
+    if(res && !RETRY_CODES.includes(res.status)) throw new Error(`demande refusée (HTTP ${res.status}) ${(await res.text()).slice(0,120)}`);
+    for(let s=wait; s>0; s--){ onStatus(`IA saturée — nouvel essai dans ${s} s`, null); await sleep(1000); }
+    wait = Math.min(wait*2, 180);
+  }
+  if(!vid) throw new Error('IA saturée trop longtemps');
+
+  // 2) Suivi
+  const pollHeaders = headers.Authorization ? {Authorization: headers.Authorization} : {};
+  const t0 = Date.now();
+  while(Date.now() - t0 < 40*60*1000){
+    await sleep(4000);
+    let d;
+    try{
+      const r = await fetchWithTimeout(`${base}/agnesapi?video_id=${encodeURIComponent(vid)}`, 30000, {headers:pollHeaders});
+      if(!r.ok){ if(r.status===404 || r.status===401) throw new Error(`suivi impossible (HTTP ${r.status})`); continue; }
+      d = await r.json();
+    }catch(e){ if(/suivi/.test(e.message)) throw e; continue; }
+    const st = String(d.status || (d.data||{}).status || '').toLowerCase();
+    let p = typeof d.progress === 'number' ? d.progress : null; if(p !== null && p > 1) p /= 100;
+    const where = d.queue_position ? `file d'attente : position ${d.queue_position}` : (d.message || 'génération en cours…');
+    onStatus(`IA${d.backend ? ' ('+d.backend+')' : ''} : ${where}`, p);
+    if(['completed','succeeded','success','done','finished'].includes(st)){
+      const url = findVideoUrl(d); if(!url) throw new Error('vidéo terminée mais lien introuvable');
+      onStatus('Téléchargement de la vidéo…', 1);
+      let blob = null;
+      try{ const vr = await fetchWithTimeout(url, 300000); if(vr.ok) blob = await vr.blob(); }catch(e){}
+      return {url, blob, backend: d.backend || 'agnes'};
+    }
+    if(['failed','error','cancelled','canceled'].includes(st)) throw new Error(d.error || d.message || 'génération échouée');
+  }
+  throw new Error('délai dépassé (40 min)');
+}
+
+async function testServer(){
+  const info = $('server-info'), srv = serverBase();
+  if(!srv){ info.textContent = $('agnes-key').value.trim() ? 'Mode Agnes direct (pas de serveur).' : 'Aucun serveur indiqué.'; updateBadge(null); return; }
+  info.textContent = 'Connexion…';
+  try{
+    const r = await fetchWithTimeout(srv + '/health', 15000);
+    const d = await r.json();
+    if(d.service !== 'dianaluxe') throw new Error('ce n\'est pas un serveur DianaLuxe');
+    info.textContent = `✓ Connecté · moteurs : ${d.backends.join(' → ') || 'aucun'} · GPU : ${d.gpu || 'non'}` +
+      (d.local_model ? ` · modèle ${d.local_model} ${d.local_ready ? 'prêt' : 'en chargement…'}` : '') +
+      ` · file : ${d.queued} en attente, ${d.running} en cours` + (d.token_required && !$('server-token').value.trim() ? ' · ⚠️ jeton requis' : '');
+    updateBadge(d.backends.length ? 'ok' : 'warn');
+  }catch(e){
+    info.textContent = '✕ Serveur injoignable : ' + (e.name==='AbortError' ? 'délai dépassé' : e.message) + ' (le notebook est-il toujours ouvert ?)';
+    updateBadge('err');
+  }
+}
+function updateBadge(s){
+  const b = $('server-badge');
+  b.textContent = s==='ok' ? '● connecté' : s==='warn' ? '● sans moteur' : s==='err' ? '● hors ligne' : ($('agnes-key').value.trim() ? '● Agnes direct' : '');
+  b.style.color = s==='ok' ? 'var(--ok)' : s==='err' ? 'var(--err)' : 'var(--warn)';
+}
+function saveServer(){
+  try{ localStorage.setItem('diana_server', JSON.stringify({url:$('server-url').value.trim(), token:$('server-token').value.trim(), key:$('agnes-key').value.trim()})); }catch(e){}
+}
+
+// ════════════════════════════════════════════════════════════════
 // GALERIE — IndexedDB (persistant, local)
 // ════════════════════════════════════════════════════════════════
 const DB = {
@@ -572,7 +717,9 @@ async function renderHistory(){
   galleryUrls.splice(0).forEach(u=>URL.revokeObjectURL(u));
   $('history-empty').style.display = items.length ? 'none' : 'block';
   $('history-grid').innerHTML = items.map(h=>{
-    const u = URL.createObjectURL(h.blob); galleryUrls.push(u);
+    let u = h.url;
+    if(h.blob){ u = URL.createObjectURL(h.blob); galleryUrls.push(u); }
+    if(!u) return '';
     const media = h.type==='image' ? `<img src="${u}" alt="">` : `<video src="${u}" muted playsinline loop onmouseenter="this.play()" onmouseleave="this.pause()" ontouchstart="this.play()"></video>`;
     return `<div class="history-item" title="${esc(h.prompt)}">${media}<span class="hist-type">${h.type}</span>
       <div class="hist-actions"><a href="${u}" download="dianaluxe-${h.type}-${h.ts}.${h.ext}">⬇</a><a href="${u}" target="_blank" rel="noopener">↗</a><button data-hdel="${h.id}">✕</button></div></div>`;
@@ -598,11 +745,12 @@ function updateTask(t, patch){
     <span class="task-status">${esc(t.progress)}</span></div><div class="task-prompt">${esc(t.prompt)}</div>`;
   if(t.status==='processing') html += `<div class="progress"><div style="width:${Math.round(t.pct*100)}%"></div></div>`;
   if(t.thumbs.length && t.status!=='done') html += `<div class="thumbs">${t.thumbs.map(u=>`<img src="${u}" alt="">`).join('')}</div>`;
+  if(t.note) html += `<div class="task-error" style="color:var(--warn)">${esc(t.note)}</div>`;
   if(t.error) html += `<div class="task-error">${esc(t.error)}</div>`;
   html += `<div class="task-result"></div>`;
   if(t.result) html += `<div class="task-actions">
       <a class="btn-small" href="${t.result.url}" download="dianaluxe-${t.type}-${t.id}.${t.result.ext}">⬇ Télécharger (${t.result.ext.toUpperCase()})</a>
-      ${navigator.canShare ? `<button class="btn-small" data-share>↗ Partager</button>` : ''}
+      ${navigator.canShare && t.result.blob ? `<button class="btn-small" data-share>↗ Partager</button>` : ''}
       <button class="btn-small" data-del>✕ Retirer</button></div>`;
   // Conserver le média déjà affiché pour éviter de le recharger
   const prevMedia = t.el.querySelector('.task-result > *');
@@ -634,6 +782,7 @@ function updateTask(t, patch){
 // ════════════════════════════════════════════════════════════════
 function readOptions(){
   return {
+    engine: $('engine-select').value, i2v: $('opt-i2v').checked,
     style: $('style-select').value, format: $('format-select').value, model: $('model-select').value,
     duration: parseInt($('duration-select').value,10), scenes: parseInt($('scenes-select').value,10),
     transition: $('transition-select').value, motion: parseFloat($('motion-select').value),
@@ -662,6 +811,32 @@ async function runImage(prompt, o){
 
 async function runVideo(prompt, o){
   const t = newTask('video', prompt);
+  // ── 1) Vraie vidéo IA (serveur DianaLuxe / Agnes) ──
+  if(o.engine === 'ai' || (o.engine === 'auto' && aiConfigured())){
+    try{
+      const f = FORMATS[o.format];
+      let p = prompt.replace(/\n+/g,', ');
+      if(o.enhance){ updateTask(t,{progress:'Amélioration du prompt…',pct:.02}); p = await enhancePrompt(p); }
+      const full = withStyle(p, o.style);
+      let firstFrame = null;
+      if(o.i2v && serverBase()){
+        updateTask(t,{progress:'Image de départ (Pollinations)…',pct:.04});
+        firstFrame = await generateImage(full, f.iw, f.ih, Math.floor(Math.random()*1e9), o.model);
+        t.thumbs.push(URL.createObjectURL(firstFrame)); updateTask(t);
+      }
+      const r = await aiVideo(full, o, (msg,pct)=>updateTask(t,{progress:msg, pct: pct==null ? t.pct : .05+.95*pct}), firstFrame);
+      t.thumbs.forEach(u=>URL.revokeObjectURL(u)); t.thumbs=[];
+      const url = r.blob ? URL.createObjectURL(r.blob) : r.url;
+      updateTask(t,{status:'done', progress:`Terminé · IA ${r.backend}`+(r.blob?` · ${(r.blob.size/1e6).toFixed(1)} Mo`:''), result:{url, blob:r.blob, ext:'mp4'}});
+      addHistory({id:t.id, type:'video', blob:r.blob, url: r.blob ? null : r.url, ext:'mp4', prompt, ts:Date.now()});
+      return true;
+    }catch(e){
+      if(o.engine === 'ai'){ updateTask(t,{status:'error',progress:'Échec',error:'IA vidéo : '+e.message}); return false; }
+      t.note = `IA vidéo indisponible (${e.message}) → montage local à la place.`;
+      t.thumbs=[]; updateTask(t,{pct:0});
+    }
+  }
+  // ── 2) Montage local (toujours disponible, illimité) ──
   try{
     const f = FORMATS[o.format];
     let base = prompt;
@@ -738,6 +913,15 @@ function updateMode(){
     try{ const s={}; document.querySelectorAll('select[id],input[type=checkbox][id]').forEach(x=>s[x.id]=x.type==='checkbox'?x.checked:x.value);
       localStorage.setItem('diana_opts',JSON.stringify(s)); }catch(e){}
   }));
+  try{ const s = JSON.parse(localStorage.getItem('diana_server')||'{}');
+    $('server-url').value = s.url||''; $('server-token').value = s.token||''; $('agnes-key').value = s.key||''; }catch(e){}
+  // Lien direct depuis le notebook : index.html#server=https://...&token=...
+  const hp = new URLSearchParams(location.hash.slice(1));
+  if(hp.get('server')){ $('server-url').value = hp.get('server'); $('server-token').value = hp.get('token')||''; saveServer(); history.replaceState(null,'',location.pathname); }
+  ['server-url','server-token','agnes-key'].forEach(id=>$(id).addEventListener('change',()=>{saveServer();testServer()}));
+  $('server-save').onclick = ()=>{ saveServer(); toast('Paramètres enregistrés'); testServer(); };
+  $('server-test').onclick = testServer;
+  if(serverBase()) testServer(); else updateBadge(null);
   if(!pickMime()) toast("Ce navigateur ne peut pas enregistrer de vidéo — essayez Chrome ou Safari récent",'warn');
   updateMode(); renderHistory();
 })();

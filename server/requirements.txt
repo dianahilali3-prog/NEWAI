@@ -1,0 +1,16 @@
+# Serveur (obligatoire)
+fastapi>=0.110
+uvicorn>=0.29
+httpx>=0.27
+pydantic>=2
+# Moteur local GPU (optionnel : seulement si vous avez une carte NVIDIA)
+# torch est déjà installé sur Colab/Kaggle ; sinon voir https://pytorch.org
+diffusers>=0.33
+transformers>=4.44
+accelerate>=0.33
+sentencepiece
+ftfy
+imageio
+imageio-ffmpeg
+pillow
+numpy

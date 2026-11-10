@@ -1,15 +1,52 @@
 # DianaLuxe AI
 
-Générateur d'images et de vidéos IA **gratuit, sans compte et sans crédits**, en un seul fichier `index.html`.
+Générateur d'images et de vidéos IA gratuit. Trois moteurs vidéo en cascade :
 
-## Utilisation
-Ouvrez `index.html` dans Chrome, Edge, Firefox ou Safari (ou hébergez-le sur GitHub Pages), écrivez votre idée, puis cliquez sur **Créer**.
+| Moteur | Ce que ça donne | Coût / limite |
+| --- | --- | --- |
+| **Agnes AI** (via le serveur) | Vraie vidéo IA, haute qualité | Clé gratuite sur platform.agnes-ai.com · 1 vidéo/min/clé (le serveur fait la file et réessaie quand c'est saturé) |
+| **LTX-Video / Wan 2.1** (open-source, sur GPU) | Vraie vidéo IA | Gratuit et sans limite sur votre GPU, ou GPU gratuit Colab/Kaggle |
+| **Montage local** (dans le navigateur) | Images IA Pollinations animées, transitions, musique | Gratuit, illimité, sans rien installer |
 
-## Comment ça marche
-1. **Scénario** : l'IA texte gratuite de Pollinations découpe votre idée en plusieurs plans (ou écrivez une scène par ligne).
-2. **Images** : chaque plan est généré par Pollinations (Flux / Turbo, gratuit, sans clé), avec la même graine pour rester cohérent.
-3. **Montage dans le navigateur** : mouvements de caméra (Ken Burns), transitions (fondu, zoom, glissement, flash), grain et vignette cinéma, texte, fondu d'entrée et de sortie.
-4. **Musique** : synthétisée en direct (WebAudio), libre de droits.
-5. **Export** : MP4 (ou WebM selon le navigateur), téléchargement, partage, galerie conservée sur l'appareil (IndexedDB).
+Si un moteur est saturé ou indisponible, le suivant prend le relais automatiquement.
 
-Aucun serveur payant n'intervient : le nombre de vidéos n'est pas limité. Seul le débit de Pollinations (≈ 1 image à la fois) fixe la vitesse.
+## 1. Le site (`index.html`)
+Ouvrez `index.html` (ou publiez-le sur GitHub Pages). Sans rien configurer, le montage local fonctionne déjà.
+
+## 2. Activer la vraie vidéo IA (gratuit)
+1. Ouvrez `notebooks/DianaLuxe_GPU.ipynb` dans **Google Colab** (GPU T4) ou **Kaggle** (GPU T4, Internet activé).
+2. (Optionnel) Collez une ou plusieurs clés Agnes, séparées par des virgules.
+3. Exécutez les cellules : le notebook affiche une **adresse** `https://….trycloudflare.com` et un **jeton**.
+4. Dans le site : **⚙️ Serveur IA vidéo** → collez l'adresse et le jeton → **Tester la connexion**.
+
+Astuce : `index.html#server=ADRESSE&token=JETON` remplit les champs automatiquement.
+
+## 3. Lancer le serveur sur votre propre PC (illimité)
+Avec une carte NVIDIA (8 Go+ conseillés) :
+```bash
+cd server
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+AGNES_API_KEYS=cle1,cle2 DIANALUXE_TOKEN=monjeton uvicorn app:app --host 0.0.0.0 --port 8000
+```
+Puis dans le site : adresse `http://localhost:8000`.
+
+### Variables du serveur
+| Variable | Rôle | Défaut |
+| --- | --- | --- |
+| `AGNES_API_KEYS` | Clés Agnes (rotation) | aucune |
+| `DIANALUXE_BACKENDS` | Ordre des moteurs (`agnes,local,mock`) | auto |
+| `LOCAL_MODEL` | `ltx` (rapide) ou `wan` (Wan 2.1 1.3B) | `ltx` |
+| `LOCAL_MAX_SIDE` | Résolution max du moteur local | `768` |
+| `DIANALUXE_TOKEN` | Jeton demandé aux clients | aucun |
+| `AGNES_MIN_INTERVAL` | Secondes entre deux demandes par clé | `62` |
+
+### API (compatible Agnes)
+- `POST /v1/videos` `{prompt, width, height, num_frames, frame_rate, seed?, image?}` → `{video_id}`
+- `GET /agnesapi?video_id=…` → `{status, progress, queue_position, backend, url}`
+- `GET /health`
+
+### Tests
+```bash
+cd server && python3 tests/test_server.py   # faux Agnes saturé + cascade
+```

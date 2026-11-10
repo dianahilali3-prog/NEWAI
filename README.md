@@ -6,7 +6,7 @@ Générateur d'images et de vidéos IA gratuit. Trois moteurs vidéo en cascade 
 | --- | --- | --- |
 | **Agnes AI** (via le serveur) | Vraie vidéo IA, haute qualité | Clé gratuite sur platform.agnes-ai.com · 1 vidéo/min/clé (le serveur fait la file et réessaie quand c'est saturé) |
 | **LTX-Video / Wan 2.1** (open-source, sur GPU) | Vraie vidéo IA | Gratuit et sans limite sur votre GPU, ou GPU gratuit Colab/Kaggle |
-| **Montage local** (dans le navigateur) | Images IA Pollinations animées, transitions, musique | Gratuit, illimité, sans rien installer |
+| **Montage local** (dans le navigateur) | Images IA Pollinations animées, transitions, musique | Gratuit, sans rien installer · Pollinations gratuit = 1 image / 45 s (géré automatiquement, 2-3 plans par image) |
 
 Si un moteur est saturé ou indisponible, le suivant prend le relais automatiquement.
 
@@ -40,6 +40,7 @@ Puis dans le site : adresse `http://localhost:8000`.
 | `LOCAL_MAX_SIDE` | Résolution max du moteur local | `768` |
 | `DIANALUXE_TOKEN` | Jeton demandé aux clients | aucun |
 | `AGNES_MIN_INTERVAL` | Secondes entre deux demandes par clé | `62` |
+| `AGNES_MODELS` | Modèles vidéo essayés dans l'ordre | `agnes-video-2.5-flash,agnes-video-2.5,agnes-video-v2.0` |
 
 ### API (compatible Agnes)
 - `POST /v1/videos` `{prompt, width, height, num_frames, frame_rate, seed?, image?}` → `{video_id}`

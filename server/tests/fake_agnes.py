@@ -31,3 +31,9 @@ async def poll(video_id: str = Query(...)):
 @app.get("/video.mp4")
 async def video():
     return Response(open(__file__.replace("fake_agnes.py", "sample.mp4"), "rb").read(), media_type="video/mp4")
+
+@app.get("/v1/models")
+async def models(authorization: str = Header(None)):
+    if authorization != "Bearer good-key":
+        raise HTTPException(401, "Invalid token")
+    return {"data": [{"id": "agnes-video-2.5-flash"}]}

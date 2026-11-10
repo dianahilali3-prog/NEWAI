@@ -123,7 +123,7 @@ h1{font-family:var(--serif);font-size:2.1rem;font-weight:300;
   La vidéo est ensuite <strong>montée directement dans votre navigateur</strong> (mouvements de caméra, transitions,
   effets cinéma, musique d'ambiance), puis exportée en MP4/WebM. Pas de serveur payant, pas de crédits : vous pouvez en créer autant que vous voulez.
   <ul>
-    <li>Pollinations limite le débit (≈ 1 image à la fois), donc une vidéo de 6 scènes prend environ 1 à 2 minutes.</li>
+    <li>Pollinations gratuit = 1 image toutes les 45 s. Avec « 2 plans par image », une vidéo de 4 scènes prend environ 1 min 30.</li>
     <li>Gardez l'onglet ouvert et visible pendant l'enregistrement vidéo.</li>
   </ul>
 </div>
@@ -162,10 +162,11 @@ h1{font-family:var(--serif);font-size:2.1rem;font-weight:300;
           <option value="16:9">16:9 · Horizontal</option>
           <option value="1:1">1:1 · Carré</option>
         </select></div>
-      <div class="control"><label>Modèle image</label>
-        <select id="model-select">
-          <option value="flux">Flux (qualité)</option>
-          <option value="turbo">Turbo (rapide)</option>
+      <div class="control video-only"><label>Plans par image</label>
+        <select id="shots-select">
+          <option value="1">1 (une image par scène)</option>
+          <option value="2" selected>2 (2× plus rapide)</option>
+          <option value="3">3 (3× plus rapide)</option>
         </select></div>
       <div class="control video-only"><label>Durée vidéo</label>
         <select id="duration-select">
@@ -341,7 +342,7 @@ async function buildScenes(prompt, count, useAI){
       const out = await askText(
         `You are a film director. Write exactly ${count} short visual shot descriptions (max 30 words each, in English) `+
         `that tell a coherent visual story about: "${prompt}". Keep the same main subject, outfit and setting in every shot. `+
-        `Vary the camera angle. Output one shot per line, no numbering, no extra text.`, 30000);
+        `Vary the camera angle. Output one shot per line, no numbering, no extra text.`, 15000);
       const scenes = out.split('\n').map(s=>s.replace(/^\s*(\d+[\.\):-]|[-*•]|shot\s*\d+:?)\s*/i,'').trim()).filter(s=>s.length>8);
       if(scenes.length >= Math.min(2,count)) return scenes.slice(0,count).map(s=>`${s}, ${prompt}`);
     }catch(e){}
@@ -352,29 +353,45 @@ async function buildScenes(prompt, count, useAI){
 // ════════════════════════════════════════════════════════════════
 // IMAGE — Pollinations (gratuit, sans clé)
 // ════════════════════════════════════════════════════════════════
-function imageUrl(prompt, w, h, seed, model){
-  return IMG_API + encodeURIComponent(prompt) +
-    `?width=${w}&height=${h}&seed=${seed}&model=${model}&nologo=true&private=true`;
+function imageUrl(prompt, w, h, seed){
+  return IMG_API + encodeURIComponent(prompt) + `?width=${w}&height=${h}&seed=${seed}&nologo=true&private=true`;
 }
 
-async function generateImage(prompt, w, h, seed, model, onRetry){
-  let lastErr;
-  for(let attempt=0; attempt<4; attempt++){
-    try{
-      const res = await fetchWithTimeout(imageUrl(prompt,w,h,seed,model), 120000);
-      if(res.status === 429){ throw new Error('trop de requêtes'); }
-      if(!res.ok) throw new Error('HTTP '+res.status);
+// Offre gratuite Pollinations : 1 image toutes les 45 s par adresse IP (+ 503 quand le service est plein).
+// On mémorise l'heure du prochain créneau libre pour ne pas gaspiller de requêtes.
+const POLL_GAP = 46000;
+let pollNextFree = 0;
+try{ pollNextFree = +localStorage.getItem('diana_poll_next') || 0; }catch(e){}
+function setPollNext(ms){ pollNextFree = Math.max(pollNextFree, Date.now()+ms); try{localStorage.setItem('diana_poll_next', pollNextFree)}catch(e){} }
+
+async function countdown(seconds, onWait, reason){
+  for(let s=Math.ceil(seconds); s>0; s--){ onWait && onWait(s, reason); await sleep(1000); }
+}
+
+async function generateImage(prompt, w, h, seed, onWait){
+  const deadline = Date.now() + 8*60*1000;
+  let lastErr = '';
+  for(let attempt=1; Date.now() < deadline; attempt++){
+    const wait = pollNextFree - Date.now();
+    if(wait > 0) await countdown(wait/1000, onWait, 'limite gratuite : 1 image / 45 s');
+    let res;
+    try{ res = await fetchWithTimeout(imageUrl(prompt,w,h,seed), 120000); }
+    catch(e){ lastErr = e.name==='AbortError' ? 'délai dépassé' : 'réseau'; await countdown(5, onWait, 'réseau'); continue; }
+    if(res.ok){
       const blob = await res.blob();
-      if(!blob.type.startsWith('image/') || blob.size < 1000) throw new Error('réponse invalide');
-      return blob;
-    }catch(e){
-      lastErr = e;
-      if(attempt === 2) model = model === 'flux' ? 'turbo' : 'flux'; // bascule de modèle
-      onRetry && onRetry(attempt+1, e);
-      await sleep(3000 * (attempt+1));
+      setPollNext(POLL_GAP);
+      if(blob.type.startsWith('image/') && blob.size > 1000) return blob;
+      lastErr = 'réponse invalide'; continue;
     }
+    // 402 = limite gratuite, 429 = trop de requêtes, 503 = service plein : on attend le délai indiqué
+    let msg = '', after = res.status === 503 ? 10 : 45;
+    try{ const j = await res.json(); msg = (j.error && j.error.message) || ''; const m = msg.match(/retry after (\d+)\s*s/i); if(m) after = +m[1] + 1; }catch(e){}
+    lastErr = `HTTP ${res.status}`;
+    if(![402,429,500,502,503,504].includes(res.status)) throw new Error(`Pollinations a refusé l'image (${lastErr}) ${msg}`);
+    setPollNext(after*1000);
+    if(res.status === 503) onWait && onWait(after, 'Pollinations saturé');
   }
-  throw new Error('Image impossible après 4 essais ('+(lastErr?.name==='AbortError'?'délai dépassé':lastErr?.message)+')');
+  throw new Error('Pollinations indisponible depuis 8 minutes ('+lastErr+'). Réessayez plus tard.');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -459,7 +476,8 @@ function drawKenBurns(ctx, img, W, H, kb, p, extraScale=1, offX=0, alpha=1){
   const base = Math.max(W/img.width, H/img.height);
   const dw = img.width*base*s, dh = img.height*base*s;
   const mx = (dw-W)/2, my = (dh-H)/2;
-  const px = kb.x0 + (kb.x1-kb.x0)*e, py = kb.y0 + (kb.y1-kb.y0)*e;
+  const cl = v => Math.max(-1, Math.min(1, v));
+  const px = cl(kb.x0 + (kb.x1-kb.x0)*e), py = cl(kb.y0 + (kb.y1-kb.y0)*e);
   const x = (W-dw)/2 - px*mx + offX, y = (H-dh)/2 - py*my;
   ctx.globalAlpha = alpha;
   ctx.drawImage(img, x, y, dw, dh);
@@ -472,12 +490,16 @@ async function renderVideo({images, duration, transition, motion, caption, cinem
   const n = images.length, T = n>1 ? Math.min(1, duration/n*0.3) : 0;
   const sceneLen = (duration + (n-1)*T) / n;
   const transKinds = ['fade','zoom','slide','flash'];
-  const scenes = images.map((img,i)=>{
+  const scenes = images.map((item,i)=>{
+    const img = item.img || item, shot = item.shot || 0;
     const zoomIn = Math.random() < .6;
-    const a = 1 + .02*motion, b = 1 + rand(.12,.2)*motion;
+    // Plan 0 : large. Plans suivants : cadrage serré sur une autre zone de l'image (effet "autre caméra").
+    const tight = shot > 0 ? 1.3 + .2*shot : 0;
+    const a = (tight||1) + .02*motion, b = (tight||1) + rand(.12,.2)*motion;
+    const fx = shot>0 ? rand(-1,1) : rand(-.8,.8), fy = shot>0 ? (shot%2 ? rand(-1,-.2) : rand(.2,1)) : rand(-.8,.8);
     return {
       img, start: i*(sceneLen-T),
-      kb:{s0:zoomIn?a:b, s1:zoomIn?b:a, x0:rand(-.8,.8), y0:rand(-.8,.8), x1:rand(-.8,.8), y1:rand(-.8,.8)},
+      kb:{s0:zoomIn?a:b, s1:zoomIn?b:a, x0:fx, y0:fy, x1:fx+rand(-.3,.3)*motion, y1:fy+rand(-.3,.3)*motion},
       trans: transition==='mix' ? transKinds[Math.floor(Math.random()*transKinds.length)] : transition,
       dir: Math.random()<.5 ? 1 : -1
     };
@@ -601,7 +623,7 @@ async function aiVideo(prompt, o, onStatus, imageBlob){
     if(token) headers.Authorization = 'Bearer ' + token;
     if(imageBlob) body.image = await blobToDataURL(imageBlob);
   }else{
-    base = AGNES_DIRECT; headers.Authorization = 'Bearer ' + key; body.model = 'agnes-video-v2.0';
+    base = AGNES_DIRECT; headers.Authorization = 'Bearer ' + key; body.model = 'agnes-video-2.5-flash';
     body.width = Math.floor(f.vw/32)*32; body.height = Math.floor(f.vh/32)*32;
   }
 
@@ -661,7 +683,7 @@ async function testServer(){
     if(d.service !== 'dianaluxe') throw new Error('ce n\'est pas un serveur DianaLuxe');
     info.textContent = `✓ Connecté · moteurs : ${d.backends.join(' → ') || 'aucun'} · GPU : ${d.gpu || 'non'}` +
       (d.local_model ? ` · modèle ${d.local_model} ${d.local_ready ? 'prêt' : 'en chargement…'}` : '') +
-      ` · file : ${d.queued} en attente, ${d.running} en cours` + (d.token_required && !$('server-token').value.trim() ? ' · ⚠️ jeton requis' : '');
+      (d.agnes_keys ? ` · Agnes : ${d.agnes_keys_detail || d.agnes_keys+' clé(s)'}` : '') + ` · file : ${d.queued} en attente, ${d.running} en cours` + (d.token_required && !$('server-token').value.trim() ? ' · ⚠️ jeton requis' : '');
     updateBadge(d.backends.length ? 'ok' : 'warn');
   }catch(e){
     info.textContent = '✕ Serveur injoignable : ' + (e.name==='AbortError' ? 'délai dépassé' : e.message) + ' (le notebook est-il toujours ouvert ?)';
@@ -783,7 +805,7 @@ function updateTask(t, patch){
 function readOptions(){
   return {
     engine: $('engine-select').value, i2v: $('opt-i2v').checked,
-    style: $('style-select').value, format: $('format-select').value, model: $('model-select').value,
+    style: $('style-select').value, format: $('format-select').value, shots: parseInt($('shots-select').value,10),
     duration: parseInt($('duration-select').value,10), scenes: parseInt($('scenes-select').value,10),
     transition: $('transition-select').value, motion: parseFloat($('motion-select').value),
     audio: $('audio-select').value, caption: $('caption-input').value.trim(),
@@ -799,8 +821,8 @@ async function runImage(prompt, o){
     let p = prompt.replace(/\n+/g,', ');
     if(o.enhance){ updateTask(t,{progress:'Amélioration du prompt…',pct:.1}); p = await enhancePrompt(p); }
     updateTask(t,{progress:'Génération de l\'image…',pct:.3});
-    const blob = await generateImage(withStyle(p,o.style), f.iw, f.ih, Math.floor(Math.random()*1e9), o.model,
-      n=>updateTask(t,{progress:`Nouvel essai ${n}/3…`}));
+    const blob = await generateImage(withStyle(p,o.style), f.iw, f.ih, Math.floor(Math.random()*1e9),
+      (sec,why)=>updateTask(t,{progress:`Image — ${why}, encore ${sec} s`}));
     const ext = blob.type.includes('png')?'png':'jpg';
     const url = URL.createObjectURL(blob);
     updateTask(t,{status:'done',progress:'Terminé',result:{url,blob,ext}});
@@ -821,7 +843,8 @@ async function runVideo(prompt, o){
       let firstFrame = null;
       if(o.i2v && serverBase()){
         updateTask(t,{progress:'Image de départ (Pollinations)…',pct:.04});
-        firstFrame = await generateImage(full, f.iw, f.ih, Math.floor(Math.random()*1e9), o.model);
+        firstFrame = await generateImage(full, f.iw, f.ih, Math.floor(Math.random()*1e9),
+          (sec,why)=>updateTask(t,{progress:`Image de départ — ${why}, encore ${sec} s`}));
         t.thumbs.push(URL.createObjectURL(firstFrame)); updateTask(t);
       }
       const r = await aiVideo(full, o, (msg,pct)=>updateTask(t,{progress:msg, pct: pct==null ? t.pct : .05+.95*pct}), firstFrame);
@@ -842,17 +865,23 @@ async function runVideo(prompt, o){
     let base = prompt;
     if(o.enhance && !prompt.includes('\n')){ updateTask(t,{progress:'Amélioration du prompt…',pct:.02}); base = await enhancePrompt(prompt); }
     updateTask(t,{progress: o.script ? 'Écriture du scénario…' : 'Préparation des scènes…', pct:.04});
-    const scenes = await buildScenes(base, o.scenes, o.script);
+    // Chaque image sert à plusieurs plans (cadrages différents) : moins d'images = plus rapide avec la limite gratuite.
+    const nImages = Math.max(1, Math.ceil(o.scenes / o.shots));
+    const scenes = await buildScenes(base, nImages, o.script);
     const seed = Math.floor(Math.random()*1e9);             // même graine = scènes cohérentes
-    const images = [];
+    const bitmaps = [];
     for(let i=0;i<scenes.length;i++){
-      updateTask(t,{progress:`Image ${i+1}/${scenes.length}…`, pct:.05 + .6*i/scenes.length});
-      const blob = await generateImage(withStyle(scenes[i],o.style), f.iw, f.ih, seed+i, o.model,
-        n=>updateTask(t,{progress:`Image ${i+1}/${scenes.length} — nouvel essai ${n}/3…`}));
-      images.push(await createImageBitmap(blob));
+      const label = `Image ${i+1}/${scenes.length}`;
+      updateTask(t,{progress:`${label}…`, pct:.05 + .6*i/scenes.length});
+      const blob = await generateImage(withStyle(scenes[i],o.style), f.iw, f.ih, seed+i,
+        (sec,why)=>updateTask(t,{progress:`${label} — ${why}, encore ${sec} s`}));
+      bitmaps.push(await createImageBitmap(blob));
       t.thumbs.push(URL.createObjectURL(blob));
       updateTask(t);
     }
+    const shotsPer = scenes.length >= o.scenes ? 1 : o.shots;
+    const images = [];
+    bitmaps.forEach(img=>{ for(let k=0;k<shotsPer;k++) images.push({img, shot:k}); });
     updateTask(t,{progress:'Montage et enregistrement…', pct:.66});
     const {blob, ext} = await renderVideo({
       images, duration:o.duration, transition:o.transition, motion:o.motion, caption:o.caption,
@@ -861,7 +890,7 @@ async function runVideo(prompt, o){
       onProgress: p => { t.pct=.66+.34*p; const bar=t.el.querySelector('.progress>div'); if(bar) bar.style.width=Math.round(t.pct*100)+'%';
                          const st=t.el.querySelector('.task-status'); if(st) st.textContent=`Enregistrement ${Math.round(p*100)}%`; }
     });
-    images.forEach(b=>b.close && b.close());
+    bitmaps.forEach(b=>b.close && b.close());
     t.thumbs.forEach(u=>URL.revokeObjectURL(u)); t.thumbs=[]; t.live=null;
     const url = URL.createObjectURL(blob);
     updateTask(t,{status:'done',progress:`Terminé · ${(blob.size/1e6).toFixed(1)} Mo`,result:{url,blob,ext}});

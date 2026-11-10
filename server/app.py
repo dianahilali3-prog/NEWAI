@@ -48,7 +48,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SERVER_TOKEN = os.environ.get("DIANALUXE_TOKEN", "").strip()          # vide = pas de protection
 AGNES_KEYS = [k.strip() for k in os.environ.get("AGNES_API_KEYS", os.environ.get("AGNES_API_KEY", "")).split(",") if k.strip()]
 AGNES_BASE = os.environ.get("AGNES_BASE_URL", "https://apihub.agnes-ai.com").rstrip("/")
-AGNES_MODEL = os.environ.get("AGNES_MODEL", "agnes-video-v2.0")
+# Modèles vidéo réellement listés par /v1/models (novembre 2026) ; essayés dans l'ordre.
+AGNES_MODELS = [m.strip() for m in os.environ.get("AGNES_MODELS", "agnes-video-2.5-flash,agnes-video-2.5,agnes-video-v2.0").split(",") if m.strip()]
 AGNES_MIN_INTERVAL = float(os.environ.get("AGNES_MIN_INTERVAL", "62"))   # secondes entre 2 créations par clé
 AGNES_MAX_WAIT = float(os.environ.get("AGNES_MAX_WAIT", "900"))          # temps max passé sur Agnes avant de passer au suivant
 LOCAL_MODEL = os.environ.get("LOCAL_MODEL", "ltx").lower()               # ltx | wan
@@ -190,8 +191,9 @@ async def run_agnes(job: Job) -> None:
     w, h = _agnes_size(req.width, req.height)
     frames = min(req.num_frames, 241)
     frames = ((frames - 1) // 8) * 8 + 1                     # format 8k+1 (121, 161, 241…)
+    models = list(AGNES_MODELS)
     payload: dict[str, Any] = {
-        "model": AGNES_MODEL, "prompt": req.prompt,
+        "model": models[0], "prompt": req.prompt,
         "width": w, "height": h, "num_frames": frames, "frame_rate": req.frame_rate,
     }
     if req.negative_prompt:
@@ -201,6 +203,7 @@ async def run_agnes(job: Job) -> None:
 
     deadline = time.time() + AGNES_MAX_WAIT
     backoff = 5.0
+    invalid_retries = 0
     async with httpx.AsyncClient(timeout=60) as client:
         # 1) Création de la tâche (avec attente si Agnes est saturé)
         video_id = None
@@ -224,8 +227,22 @@ async def run_agnes(job: Job) -> None:
                 break
             if r is not None:
                 err = f"HTTP {r.status_code} {r.text[:150]}"
+                low = r.text.lower()
+                if r.status_code in (400, 404, 422, 503) and "model" in low and len(models) > 1:
+                    models.pop(0)                         # modèle inconnu / indisponible : on essaie le suivant
+                    payload["model"] = models[0]
+                    job.message = f"Agnes : essai du modèle {models[0]}"
+                    agnes_pool.next_ok[key] = 0
+                    continue
+                if r.status_code == 401 and "invalid token" in low and invalid_retries < 3:
+                    invalid_retries += 1                  # la passerelle Agnes renvoie parfois 401 à tort : on réessaie un peu
+                    await asyncio.sleep(3)
+                    agnes_pool.next_ok[key] = 0
+                    continue
                 if r.status_code in (401, 402, 403):
                     agnes_pool.penalize(key, 3600)        # clé invalide ou quota épuisé : on la met de côté
+                    if r.status_code == 401:
+                        err = "clé refusée par Agnes (Invalid token) — vérifiez ou régénérez-la sur platform.agnes-ai.com"
                     if all(agnes_pool.next_ok[k] > time.time() + 600 for k in agnes_pool.keys):
                         raise RuntimeError(f"toutes les clés Agnes sont refusées ({err})")
                     continue
@@ -246,7 +263,7 @@ async def run_agnes(job: Job) -> None:
         while time.time() - start < 1200:
             await asyncio.sleep(6)
             try:
-                r = await client.get(f"{AGNES_BASE}/agnesapi", params={"video_id": video_id}, headers=poll_headers)
+                r = await client.get(f"{AGNES_BASE}/agnesapi", params={"video_id": video_id, "model_name": payload["model"]}, headers=poll_headers)
             except httpx.HTTPError:
                 continue
             if r.status_code == 429 or r.status_code >= 500:
@@ -502,8 +519,35 @@ def base_url(request: Request) -> str:
     return f"{proto}://{host}/"
 
 
+KEY_STATUS: dict[str, Any] = {"checked": 0, "valid": None, "detail": None}
+
+
+async def check_agnes_keys() -> None:
+    """Vérifie les clés auprès d'Agnes (paramètre anti-cache : /v1/models peut renvoyer une réponse en cache)."""
+    if not AGNES_KEYS or time.time() - KEY_STATUS["checked"] < 300:
+        return
+    valid, detail = 0, []
+    async with httpx.AsyncClient(timeout=20) as client:
+        for i, k in enumerate(AGNES_KEYS):
+            ok = False
+            for _ in range(2):
+                try:
+                    r = await client.get(f"{AGNES_BASE}/v1/models", params={"_": uuid.uuid4().hex},
+                                         headers={"Authorization": f"Bearer {k}", "Cache-Control": "no-cache"})
+                    if r.status_code == 200:
+                        ok = any("video" in m.get("id", "") for m in r.json().get("data", []))
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+            valid += ok
+            detail.append(f"clé {i + 1}: {'ok' if ok else 'refusée'}")
+    KEY_STATUS.update(checked=time.time(), valid=valid, detail=", ".join(detail))
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    await check_agnes_keys()
     gpu = None
     try:
         import torch
@@ -513,6 +557,7 @@ async def health() -> dict[str, Any]:
         pass
     return {
         "ok": True, "service": "dianaluxe", "backends": BACKENDS, "agnes_keys": len(AGNES_KEYS),
+        "agnes_keys_valid": KEY_STATUS["valid"], "agnes_keys_detail": KEY_STATUS["detail"],
         "local_model": LOCAL_MODEL if "local" in BACKENDS else None, "local_ready": local_model.pipe is not None,
         "gpu": gpu, "queued": sum(1 for j in JOBS.values() if j.status == "queued"),
         "running": sum(1 for j in JOBS.values() if j.status == "running"), "token_required": bool(SERVER_TOKEN),

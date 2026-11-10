@@ -1,19 +1,23 @@
-# DianaLuxe AI
+# Éclat Ai
 
-Générateur d'images et de vidéos IA gratuit. Trois moteurs vidéo en cascade :
+Application web (style mobile, néon rose) pour créer des **images** et des **vidéos** avec l'IA, et discuter avec un **Agent IA** créatif.
+Ouvrez `index.html` (ou publiez le dépôt sur GitHub Pages), puis **Profil → Paramètres de l'IA** pour coller votre clé Agnes.
 
-| Moteur | Ce que ça donne | Coût / limite |
+| Fonction | Moteur | Vitesse (mesurée) |
 | --- | --- | --- |
-| **Agnes AI** (via le serveur) | Vraie vidéo IA, haute qualité | Clé gratuite sur platform.agnes-ai.com · 1 vidéo/min/clé (le serveur fait la file et réessaie quand c'est saturé) |
-| **LTX-Video / Wan 2.1** (open-source, sur GPU) | Vraie vidéo IA | Gratuit et sans limite sur votre GPU, ou GPU gratuit Colab/Kaggle |
-| **Montage local** (dans le navigateur) | Images IA Pollinations animées, transitions, musique | Gratuit, sans rien installer · Pollinations gratuit = 1 image / 45 s (géré automatiquement, 2-3 plans par image) |
+| Agent IA | Agnes `agnes-3.0-flash` | 1 à 10 s |
+| Image, Image → Image | Agnes `agnes-image-2.5-flash` / `2.1-flash` (secours : Pollinations gratuit) | ~11 s |
+| Vidéo IA | Agnes `agnes-video-2.5-flash` (file souvent pleine : l'app réessaie toutes les 30 s) | variable |
+| Vidéo — repli automatique | Montage animé dans le navigateur à partir d'images Agnes (caméra, transitions, musique) | ~2 min pour 10 s |
 
-Si un moteur est saturé ou indisponible, le suivant prend le relais automatiquement.
+Sans clé Agnes, tout fonctionne avec Pollinations (1 image / 45 s).
 
-## 1. Le site (`index.html`)
-Ouvrez `index.html` (ou publiez-le sur GitHub Pages). Sans rien configurer, le montage local fonctionne déjà.
+Fichiers : `index.html` (écrans), `css/app.css` (style), `js/engine.js` (moteurs), `js/app.js` (interface), `assets/` (visuels générés avec Agnes).
 
-## 2. Activer la vraie vidéo IA (gratuit)
+---
+
+## Serveur GPU optionnel
+
 1. Ouvrez `notebooks/DianaLuxe_GPU.ipynb` dans **Google Colab** (GPU T4) ou **Kaggle** (GPU T4, Internet activé).
 2. (Optionnel) Collez une ou plusieurs clés Agnes, séparées par des virgules.
 3. Exécutez les cellules : le notebook affiche une **adresse** `https://….trycloudflare.com` et un **jeton**.

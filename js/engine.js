@@ -38,7 +38,7 @@ async function shrinkImage(blob, maxSide = 1344) {
 
 // ── Réglages (stockés sur l'appareil) ────────────────────────────
 const Settings = {
-  _d: { agnesKey: '', serverUrl: '', serverToken: '', name: 'ma belle', patience: 3, music: 'ambient', cinema: true, format: '9:16' },
+  _d: { agnesKey: '', serverUrl: '', serverToken: '', name: 'ma belle', patience: 1, music: 'ambient', cinema: true, format: '9:16' },
   get(k) { try { const s = JSON.parse(localStorage.getItem('eclat_settings') || '{}'); return k in s ? s[k] : this._d[k]; } catch (e) { return this._d[k]; } },
   set(k, v) { try { const s = JSON.parse(localStorage.getItem('eclat_settings') || '{}'); s[k] = v; localStorage.setItem('eclat_settings', JSON.stringify(s)); } catch (e) {} },
   clearKeys() { ['agnesKey', 'serverUrl', 'serverToken'].forEach(k => this.set(k, '')); }
@@ -475,7 +475,7 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
 
   // 1) Vraie vidéo IA (mouvements générés par l'IA)
   if (o.engine !== 'montage' && (serverBase() || hasAgnes())) {
-    const patience = o.engine === 'ai' ? 40 : (serverBase() ? 30 : +Settings.get('patience') || 3);
+    const patience = o.engine === 'ai' ? 40 : (serverBase() ? 30 : +Settings.get('patience') || 1);
     try {
       onStatus('Envoi à l\'IA vidéo…', .02);
       const r = await aiVideo({ prompt: full, duration: o.duration, format: o.format, image: o.image,

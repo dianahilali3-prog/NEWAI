@@ -4,7 +4,8 @@ import os, subprocess, sys, time, httpx
 
 ENV = dict(os.environ, NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost",
            AGNES_BASE_URL="http://127.0.0.1:8101", AGNES_API_KEYS="bad-key,good-key",
-           AGNES_MIN_INTERVAL="1", AGNES_MAX_WAIT="60", DIANALUXE_BACKENDS="agnes,mock",
+           AGNES_MIN_INTERVAL="1", AGNES_MAX_WAIT="60", AGNES_QUEUE_RETRY="2",
+           AGNES_MODELS="agnes-video-v2.0,agnes-video-2.5,agnes-video-2.5-flash", DIANALUXE_BACKENDS="agnes,mock",
            DIANALUXE_TOKEN="secret", DIANALUXE_OUTPUT_DIR="/tmp/dl_test_out", PYTHONPATH=".")
 procs = [subprocess.Popen([sys.executable, "-m", "uvicorn", "tests.fake_agnes:app", "--port", "8101"], env=ENV),
          subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app", "--port", "8100"], env=ENV)]
@@ -27,7 +28,7 @@ try:
     print("health", c.get("/health").json())
     assert c.post("/v1/videos", json={"prompt": "test"}).status_code == 401, "token must be required"
 
-    # 1) Agnes saturé (2× 429) + une clé invalide → doit finir par réussir via Agnes
+    # 1) Modèle indisponible, modèle payant, file pleine (2×) + une clé invalide → doit finir par réussir via Agnes
     r = c.post("/v1/videos", json={"prompt": "a cat on the beach", "width": 720, "height": 1280, "num_frames": 120}, headers=H)
     assert r.status_code == 201, r.text
     d = wait(r.json()["video_id"])

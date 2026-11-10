@@ -51,7 +51,8 @@ AGNES_BASE = os.environ.get("AGNES_BASE_URL", "https://apihub.agnes-ai.com").rst
 # Modèles vidéo réellement listés par /v1/models (novembre 2026) ; essayés dans l'ordre.
 AGNES_MODELS = [m.strip() for m in os.environ.get("AGNES_MODELS", "agnes-video-2.5-flash,agnes-video-2.5,agnes-video-v2.0").split(",") if m.strip()]
 AGNES_MIN_INTERVAL = float(os.environ.get("AGNES_MIN_INTERVAL", "62"))   # secondes entre 2 créations par clé
-AGNES_MAX_WAIT = float(os.environ.get("AGNES_MAX_WAIT", "900"))          # temps max passé sur Agnes avant de passer au suivant
+AGNES_MAX_WAIT = float(os.environ.get("AGNES_MAX_WAIT", "2400"))         # temps max passé à attendre Agnes avant le moteur suivant
+AGNES_QUEUE_RETRY = float(os.environ.get("AGNES_QUEUE_RETRY", "30"))     # intervalle entre deux essais quand la file Agnes est pleine
 LOCAL_MODEL = os.environ.get("LOCAL_MODEL", "ltx").lower()               # ltx | wan
 LOCAL_MAX_SIDE = int(os.environ.get("LOCAL_MAX_SIDE", "768"))            # résolution max du moteur local (augmentez si gros GPU)
 KEEP_FILES = int(os.environ.get("DIANALUXE_KEEP_FILES", "200"))
@@ -189,35 +190,46 @@ async def run_agnes(job: Job) -> None:
         raise RuntimeError("aucune clé AGNES_API_KEYS configurée")
     req = job.req
     w, h = _agnes_size(req.width, req.height)
-    frames = min(req.num_frames, 241)
-    frames = ((frames - 1) // 8) * 8 + 1                     # format 8k+1 (121, 161, 241…)
-    models = list(AGNES_MODELS)
-    payload: dict[str, Any] = {
-        "model": models[0], "prompt": req.prompt,
-        "width": w, "height": h, "num_frames": frames, "frame_rate": req.frame_rate,
-    }
-    if req.negative_prompt:
-        payload["negative_prompt"] = req.negative_prompt
-    if req.seed is not None:
-        payload["seed"] = req.seed
+    secs = max(1.0, req.num_frames / max(1, req.frame_rate))
+    # Deux formats de requête existent selon le modèle (constatés en direct, novembre 2026) :
+    #  - "simple" (agnes-video-2.5 / 2.5-flash) : mode, seconds, size  — width/num_frames y sont interdits
+    #  - "frames" (agnes-video-v2.0, doc officielle) : width, height, num_frames, frame_rate
+    def build(model: str, style: str) -> dict[str, Any]:
+        p: dict[str, Any] = {"model": model, "prompt": req.prompt}
+        if style == "simple":
+            p.update(mode="text", seconds="10" if secs >= 7.5 else "5", size="720P")
+        else:
+            frames = ((min(req.num_frames, 241) - 1) // 8) * 8 + 1
+            p.update(width=w, height=h, num_frames=frames, frame_rate=req.frame_rate)
+            if req.negative_prompt:
+                p["negative_prompt"] = req.negative_prompt
+            if req.seed is not None:
+                p["seed"] = req.seed
+        return p
 
+    models = list(AGNES_MODELS)
+    styles = {m: ("frames" if "v2.0" in m else "simple") for m in models}
     deadline = time.time() + AGNES_MAX_WAIT
     backoff = 5.0
     invalid_retries = 0
+    queue_full = 0
     async with httpx.AsyncClient(timeout=60) as client:
-        # 1) Création de la tâche (avec attente si Agnes est saturé)
+        # 1) Création de la tâche (attente patiente tant que la file Agnes est pleine)
         video_id = None
         while video_id is None:
-            job.message = "Agnes : attente d'un créneau libre…"
+            if not models:
+                raise RuntimeError("aucun modèle vidéo Agnes utilisable avec ces clés (quota payant épuisé ou modèles indisponibles)")
+            model = models[0]
+            payload = build(model, styles[model])
             key = await agnes_pool.acquire(deadline)
             if key is None:
-                raise RuntimeError("Agnes saturé trop longtemps")
+                raise RuntimeError(f"file Agnes pleine pendant {int(AGNES_MAX_WAIT / 60)} min ({queue_full} essais)")
             headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+            r, err = None, ""
             try:
-                job.message = "Agnes : envoi de la demande…"
+                job.message = f"Agnes ({model}) : envoi de la demande…"
                 r = await client.post(f"{AGNES_BASE}/v1/videos", json=payload, headers=headers)
             except httpx.HTTPError as e:
-                r = None
                 err = f"réseau ({type(e).__name__})"
             if r is not None and r.status_code < 300:
                 data = r.json()
@@ -225,22 +237,43 @@ async def run_agnes(job: Job) -> None:
                 if not video_id:
                     raise RuntimeError(f"réponse Agnes sans video_id : {str(data)[:200]}")
                 break
+            wait = backoff
             if r is not None:
-                err = f"HTTP {r.status_code} {r.text[:150]}"
                 low = r.text.lower()
-                if r.status_code in (400, 404, 422, 503) and "model" in low and len(models) > 1:
-                    models.pop(0)                         # modèle inconnu / indisponible : on essaie le suivant
-                    payload["model"] = models[0]
-                    job.message = f"Agnes : essai du modèle {models[0]}"
+                err = f"HTTP {r.status_code} {r.text[:150]}"
+                if "video_queue_full" in low or "queue is full" in low:
+                    # Saturation Agnes : on garde notre place en réessayant régulièrement
+                    queue_full += 1
+                    agnes_pool.next_ok[key] = 0
+                    wait = AGNES_QUEUE_RETRY
+                    job.message = f"Agnes : file pleine, on réessaie (essai {queue_full}, prochain dans {int(wait)} s)"
+                    log.info("job %s agnes queue full (%d)", job.id, queue_full)
+                    await asyncio.sleep(wait)
+                    continue
+                if "insufficient_user_quota" in low or r.status_code == 402:
+                    log.info("job %s modèle %s payant/épuisé → suivant", job.id, model)
+                    models.pop(0); agnes_pool.next_ok[key] = 0
+                    continue
+                if r.status_code == 400 and ("forbidden field" in low or "is required" in low):
+                    other = "frames" if styles[model] == "simple" else "simple"
+                    if styles.get(model + "#tried") is None:
+                        styles[model + "#tried"] = True
+                        styles[model] = other             # mauvais format : on essaie l'autre
+                    else:
+                        models.pop(0)
+                    agnes_pool.next_ok[key] = 0
+                    continue
+                if ("temporarily unavailable" in low or "get_channel_failed" in low or "model" in low and r.status_code in (404, 422)) and len(models) > 1:
+                    models.append(models.pop(0))          # modèle indisponible : on le met en fin de liste
                     agnes_pool.next_ok[key] = 0
                     continue
                 if r.status_code == 401 and "invalid token" in low and invalid_retries < 3:
-                    invalid_retries += 1                  # la passerelle Agnes renvoie parfois 401 à tort : on réessaie un peu
-                    await asyncio.sleep(3)
+                    invalid_retries += 1
                     agnes_pool.next_ok[key] = 0
+                    await asyncio.sleep(3)
                     continue
-                if r.status_code in (401, 402, 403):
-                    agnes_pool.penalize(key, 3600)        # clé invalide ou quota épuisé : on la met de côté
+                if r.status_code in (401, 403):
+                    agnes_pool.penalize(key, 3600)        # clé refusée : on la met de côté
                     if r.status_code == 401:
                         err = "clé refusée par Agnes (Invalid token) — vérifiez ou régénérez-la sur platform.agnes-ai.com"
                     if all(agnes_pool.next_ok[k] > time.time() + 600 for k in agnes_pool.keys):
@@ -249,12 +282,12 @@ async def run_agnes(job: Job) -> None:
                 if r.status_code not in RETRYABLE:
                     raise RuntimeError(f"Agnes a refusé la demande : {err}")
                 agnes_pool.penalize(key, backoff)
-            job.message = f"Agnes saturé ({err[:40]}) — nouvel essai dans {int(backoff)} s"
+            job.message = f"Agnes indisponible ({err[:40]}) — nouvel essai dans {int(wait)} s"
             log.info("job %s agnes retry: %s", job.id, err)
-            await asyncio.sleep(backoff)
+            await asyncio.sleep(wait)
             backoff = min(backoff * 2, 120)
             if time.time() > deadline:
-                raise RuntimeError("Agnes saturé trop longtemps")
+                raise RuntimeError("Agnes indisponible trop longtemps")
 
         # 2) Suivi de la tâche
         job.message = "Agnes : génération en cours…"
@@ -263,7 +296,7 @@ async def run_agnes(job: Job) -> None:
         while time.time() - start < 1200:
             await asyncio.sleep(6)
             try:
-                r = await client.get(f"{AGNES_BASE}/agnesapi", params={"video_id": video_id, "model_name": payload["model"]}, headers=poll_headers)
+                r = await client.get(f"{AGNES_BASE}/agnesapi", params={"video_id": video_id, "model_name": model}, headers=poll_headers)
             except httpx.HTTPError:
                 continue
             if r.status_code == 429 or r.status_code >= 500:

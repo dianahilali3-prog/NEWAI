@@ -623,13 +623,16 @@ async function aiVideo(prompt, o, onStatus, imageBlob){
     if(token) headers.Authorization = 'Bearer ' + token;
     if(imageBlob) body.image = await blobToDataURL(imageBlob);
   }else{
-    base = AGNES_DIRECT; headers.Authorization = 'Bearer ' + key; body.model = 'agnes-video-2.5-flash';
-    body.width = Math.floor(f.vw/32)*32; body.height = Math.floor(f.vh/32)*32;
+    // Format réel d'agnes-video-2.5-flash (gratuit) : mode / seconds / size (width & num_frames interdits)
+    base = AGNES_DIRECT; headers.Authorization = 'Bearer ' + key;
+    for(const k of Object.keys(body)) delete body[k];
+    Object.assign(body, {model:'agnes-video-2.5-flash', prompt, mode:'text', seconds: secs >= 8 ? '10' : '5', size:'720P'});
   }
 
   // 1) Création (attente automatique si saturé)
   let vid = null, wait = srv ? 10 : 65, netFails = 0;
-  for(let attempt=1; attempt<=8 && !vid; attempt++){
+  const maxAttempts = srv ? 8 : 80;                          // Agnes direct : ~40 min de patience si la file est pleine
+  for(let attempt=1; attempt<=maxAttempts && !vid; attempt++){
     onStatus(`IA : envoi de la demande (essai ${attempt})…`, null);
     let res;
     try{ res = await fetchWithTimeout(base + '/v1/videos', 60000, {method:'POST', headers, body:JSON.stringify(body)}); }
@@ -639,6 +642,13 @@ async function aiVideo(prompt, o, onStatus, imageBlob){
       res = null;
     }
     if(res && res.ok){ const d = await res.json(); vid = d.video_id || d.id || (d.data||{}).video_id; if(!vid) throw new Error('réponse sans video_id'); break; }
+    let errTxt = '';
+    if(res && !res.ok){ try{ errTxt = await res.clone().text(); }catch(e){} }
+    if(res && /queue_full|queue is full/i.test(errTxt)){
+      for(let s=30; s>0; s--){ onStatus(`Agnes : file pleine — essai ${attempt}, nouvel essai dans ${s} s`, null); await sleep(1000); }
+      continue;
+    }
+    if(res && /insufficient_user_quota/i.test(errTxt)) throw new Error('quota Agnes épuisé pour ce modèle');
     if(res && [401,402,403].includes(res.status)) throw new Error(res.status===401 ? 'jeton ou clé refusé (401)' : `accès refusé / quota épuisé (${res.status})`);
     if(res && !RETRY_CODES.includes(res.status)) throw new Error(`demande refusée (HTTP ${res.status}) ${(await res.text()).slice(0,120)}`);
     for(let s=wait; s>0; s--){ onStatus(`IA saturée — nouvel essai dans ${s} s`, null); await sleep(1000); }
@@ -648,12 +658,13 @@ async function aiVideo(prompt, o, onStatus, imageBlob){
 
   // 2) Suivi
   const pollHeaders = headers.Authorization ? {Authorization: headers.Authorization} : {};
+  const modelParam = srv ? '' : '&model_name=agnes-video-2.5-flash';
   const t0 = Date.now();
   while(Date.now() - t0 < 40*60*1000){
     await sleep(4000);
     let d;
     try{
-      const r = await fetchWithTimeout(`${base}/agnesapi?video_id=${encodeURIComponent(vid)}`, 30000, {headers:pollHeaders});
+      const r = await fetchWithTimeout(`${base}/agnesapi?video_id=${encodeURIComponent(vid)}${modelParam}`, 30000, {headers:pollHeaders});
       if(!r.ok){ if(r.status===404 || r.status===401) throw new Error(`suivi impossible (HTTP ${r.status})`); continue; }
       d = await r.json();
     }catch(e){ if(/suivi/.test(e.message)) throw e; continue; }

@@ -1,0 +1,16 @@
+{
+  "name": "Éclat Ai",
+  "short_name": "Éclat Ai",
+  "description": "Crée des images et des vidéos avec l'IA, et discute avec ton agent créatif.",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#060408",
+  "theme_color": "#060408",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

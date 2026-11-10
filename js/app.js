@@ -474,4 +474,6 @@ window.addEventListener('hashchange', route);
   let seen = false; try { seen = sessionStorage.getItem('eclat_splash') === '1'; sessionStorage.setItem('eclat_splash', '1'); } catch (e) {}
   if (seen) show(); else setTimeout(show, 1600);
   route();
+  // Application installable (écran d'accueil) + interface disponible hors ligne
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

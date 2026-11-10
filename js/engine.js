@@ -490,7 +490,8 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
   }
 
   // 2) Montage : quelques images IA animées (caméra, transitions, musique)
-  const nScenes = o.image ? Math.max(2, Math.min(6, Math.round(o.duration / 3))) : Math.max(2, Math.min(10, Math.round(o.duration / 2.5)));
+  const nScenes = o.image ? Math.max(2, Math.min(8, Math.round(o.duration / 2.5)))
+    : Math.max(2, Math.min(12, Math.round(o.duration / (hasAgnes() ? 2 : 2.5))));   // Agnes en parallèle : plus de plans sans attendre plus
   const fast = hasAgnes();                                       // Agnes : ~10 s / image ; Pollinations : 45 s / image
   const nImages = fast ? nScenes : Math.max(1, Math.ceil(nScenes / 2));
   const bitmaps = [];
@@ -499,19 +500,35 @@ async function createVideo(o, { onStatus, onPreview, onCanvas }) {
   const scenes = await planScenes(o.prompt, o.image ? Math.max(0, nImages - 1) : nImages);
   if (first) { bitmaps.push(await createImageBitmap(first)); onPreview && onPreview(first); }
   const seed = Math.floor(Math.random() * 1e9);
-  for (let i = 0; i < scenes.length; i++) {
-    const label = `Image ${bitmaps.length + 1}/${scenes.length + (first ? 1 : 0)}`;
-    onStatus(label + '…', .08 + .55 * i / scenes.length);
-    let blob;
+  // Agnes accepte plusieurs images en parallèle (mesuré : 4 images en ~16 s au lieu de ~50 s).
+  // Pollinations gratuit reste en série (1 image / 45 s).
+  const total = scenes.length + (first ? 1 : 0);
+  const results = new Array(scenes.length);
+  let done = 0, fatal = null;
+  const makeOne = async i => {
+    const label = `Image ${i + 1 + (first ? 1 : 0)}/${total}`;
     try {
       // Avec une image de départ (Image → Vidéo), Agnes crée d'autres plans de la même scène
       const r = await createImage({ prompt: first && fast ? `same person, same outfit and same setting as the reference image. ${scenes[i]}` : scenes[i],
-        style: o.style, format: o.format, image: first && fast ? first : null, seed: seed + i, onStatus: m => onStatus(`${label} — ${m}`) });
-      blob = r.blob;
-    } catch (e) { if (bitmaps.length >= 1 && e.status !== 401) { notes.push(`${label} ignorée (${e.message})`); continue; } throw e; }
-    bitmaps.push(await createImageBitmap(blob));
-    if (!first || i === 0) onPreview && onPreview(blob);
-  }
+        style: o.style, format: o.format, image: first && fast ? first : null, seed: seed + i,
+        onStatus: m => onStatus(fast ? `Création des images en parallèle… (${done}/${scenes.length})` : `${label} — ${m}`) });
+      results[i] = r.blob;
+      if (!first && done === 0) onPreview && onPreview(r.blob);
+    } catch (e) {
+      if (e.status === 401) fatal = e;
+      notes.push(`${label} ignorée (${e.message})`);
+    }
+    done++;
+    onStatus(`Images créées : ${done}/${scenes.length}`, .08 + .55 * done / scenes.length);
+  };
+  const workers = fast ? 4 : 1;
+  let next = 0;
+  onStatus(fast ? `Création de ${scenes.length} images en parallèle…` : 'Création des images…', .08);
+  await Promise.all(Array.from({ length: Math.min(workers, scenes.length) }, async () => {
+    while (next < scenes.length && !fatal) await makeOne(next++);
+  }));
+  if (fatal && !results.some(Boolean)) throw fatal;
+  for (const blob of results) if (blob) bitmaps.push(await createImageBitmap(blob));
   if (!bitmaps.length) throw new Error('aucune image n\'a pu être créée');
   const shotsPer = Math.max(1, Math.ceil(nScenes / bitmaps.length));
   const images = []; bitmaps.forEach(img => { for (let k = 0; k < shotsPer; k++) images.push({ img, shot: k }); });

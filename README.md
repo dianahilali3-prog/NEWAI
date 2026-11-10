@@ -8,11 +8,13 @@ Ouvrez `index.html` (ou publiez le dépôt sur GitHub Pages), puis **Profil → 
 | Agent IA | Agnes `agnes-3.0-flash` | 1 à 10 s |
 | Image, Image → Image | Agnes `agnes-image-2.5-flash` / `2.1-flash` (secours : Pollinations gratuit) | ~11 s |
 | Vidéo IA | Agnes `agnes-video-2.5-flash` (file souvent pleine : l'app réessaie toutes les 30 s) | variable |
-| Vidéo — repli automatique | Montage animé dans le navigateur à partir d'images Agnes (caméra, transitions, musique) | ~2 min pour 10 s |
+| Vidéo — repli automatique | Montage animé dans le navigateur à partir d'images Agnes créées en parallèle (caméra, transitions, musique) | ~30 s pour 10 s |
 
 Sans clé Agnes, tout fonctionne avec Pollinations (1 image / 45 s).
 
-Fichiers : `index.html` (écrans), `css/app.css` (style), `js/engine.js` (moteurs), `js/app.js` (interface), `assets/` (visuels générés avec Agnes).
+**Installable** sur téléphone (« Sur l'écran d'accueil ») une fois publié en HTTPS (ex. GitHub Pages) ; l'interface s'ouvre même hors ligne.
+
+Fichiers : `index.html` (écrans), `css/app.css` (style), `js/engine.js` (moteurs), `js/app.js` (interface), `assets/` (visuels générés avec Agnes), `manifest.webmanifest` + `sw.js` (application installable).
 
 ---
 

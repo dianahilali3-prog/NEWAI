@@ -615,9 +615,16 @@ const JINA = 'https://r.jina.ai/';
 // En-tête demandé par Wikimedia aux applications web (aucune donnée personnelle)
 const WIKI_HDR = { 'Api-User-Agent': 'EclatAi/1.0 (https://dianahilali3-prog.github.io/NEWAI/)' };
 async function wikiJSON(u) {
-  const r = await fetchWithTimeout(u, 20000, { headers: WIKI_HDR });
-  if (!r.ok) throw new Error(r.status === 429 ? 'Wikimedia limite les requêtes, réessaie dans un instant' : 'HTTP ' + r.status);
-  return r.json();
+  try {
+    const r = await fetchWithTimeout(u, 20000, { headers: WIKI_HDR });
+    if (r.ok) return await r.json();
+    if (r.status !== 429 && r.status < 500) throw new Error('HTTP ' + r.status);
+  } catch (e) { if (/^HTTP 4/.test(e.message)) throw e; }
+  // Secours si Wikimedia limite les requêtes : la même requête passe par Jina Reader
+  const r2 = await fetchWithTimeout(JINA + u.replace(/&origin=\*/, ''), 45000, { headers: { 'X-Return-Format': 'text' } });
+  const t = await r2.text();
+  if (!r2.ok || t.indexOf('{') < 0) throw new Error('Wikimedia indisponible pour le moment');
+  return JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
 }
 const clip = (t, n) => (t || '').length > n ? t.slice(0, n) + '…' : (t || '');
 
@@ -681,10 +688,15 @@ async function searchImages(query, n = 8) {
 
 // Télécharge une image du web (pour l'utiliser comme référence / personnage)
 async function fetchImageBlob(url) {
-  const r = await fetchWithTimeout(url, 30000);
-  if (!r.ok) throw new Error('image inaccessible');
-  const b = await r.blob(); if (!b.type.startsWith('image/')) throw new Error('ce n\'est pas une image');
-  return b;
+  // Direct d'abord ; sinon via wsrv.nl (proxy d'images open source, autorise le navigateur)
+  for (const u of [url, `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=1344&output=jpg`]) {
+    try {
+      const r = await fetchWithTimeout(u, 30000);
+      if (!r.ok) continue;
+      const b = await r.blob(); if (b.type.startsWith('image/')) return b;
+    } catch (e) {}
+  }
+  throw new Error('image inaccessible');
 }
 
 // Chat avec outils (tool calling OpenAI-compatible, vérifié sur Agnes)
